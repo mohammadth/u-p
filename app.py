@@ -743,66 +743,90 @@ def get_python_files(directory):
     return python_files
 
 # ======= نظام تثبيت المتطلبات المحسّن النهائي ======= #
-async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance, bot_info):
-    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي - الإصدار المعدل"""
+async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance):
+    """تثبيت المتطلبات حقيقياً مع إصلاح مشكلة المسار"""
     try:
         # إرسال رسالة بدء التثبيت
         status_message = await bot_instance.send_message(
             chat_id, 
-            f"📦 جاري تثبيت متطلبات البوت {bot_name}...\n⏳ قد تستغرق هذه العملية عدة دقائق"
+            f"📦 جاري تثبيت متطلبات البوت {bot_name}..."
         )
         
-        # التحقق من وجود ملف المتطلبات وإنشاؤه من المحتوى المخزن إذا لزم الأمر
-        logger.info(f"🔍 البحث عن ملف المتطلبات في: {requirements_file}")
+        # 🔧 الإصلاح: التحقق المكثف من المسار
+        logger.info(f"🔍 فحص المسار: {requirements_file}")
         logger.info(f"📁 المجلد: {bot_lib_folder}")
-        logger.info(f"📁 وجود المجلد: {os.path.exists(bot_lib_folder)}")
         
-        if not os.path.exists(bot_lib_folder):
-            logger.info(f"📁 إنشاء المجلد: {bot_lib_folder}")
-            os.makedirs(bot_lib_folder, exist_ok=True)
+        # التحقق من وجود المجلد وإنشاؤه إذا لزم الأمر
+        os.makedirs(bot_lib_folder, exist_ok=True)
+        logger.info(f"✅ تأكد من وجود المجلد: {os.path.exists(bot_lib_folder)}")
         
+        # 🔍 فحص شامل للملف
         if not os.path.exists(requirements_file):
-            logger.warning(f"❌ ملف المتطلبات غير موجود: {requirements_file}")
-            # التحقق من وجود محتوى متطلبات مخزن في bot_info
-            if 'requirements_content' in bot_info and bot_info['requirements_content']:
-                logger.info(f"📝 إنشاء ملف المتطلبات من المحتوى المخزن للبوت {bot_name}")
+            error_msg = f"❌ ملف المتطلبات غير موجود:\n{requirements_file}"
+            logger.error(error_msg)
+            
+            # محاولة إنشاء ملف جديد
+            try:
+                default_content = """Flask[async]
+requests
+aiohttp
+googleapis-common-protos
+pycryptodome
+protobuf
+Werkzeug"""
+                
                 with open(requirements_file, 'w', encoding='utf-8') as f:
-                    f.write(bot_info['requirements_content'])
-                await status_message.edit_text("✅ تم إنشاء ملف المتطلبات تلقائياً من المحتوى المخزن")
-            else:
-                await status_message.edit_text("❌ ملف المتطلبات غير موجود ولا يوجد محتوى مخزن")
-                return False, "ملف المتطلبات غير موجود ولا يوجد محتوى مخزن"
-
-        # قراءة المتطلبات أولاً لعرضها
+                    f.write(default_content)
+                logger.info(f"✅ تم إنشاء ملف متطلبات جديد: {requirements_file}")
+                
+                await status_message.edit_text("📝 تم إنشاء ملف المتطلبات، جاري التثبيت...")
+            except Exception as e:
+                error_msg = f"❌ فشل إنشاء الملف: {str(e)}"
+                logger.error(error_msg)
+                await status_message.edit_text(error_msg)
+                return False, error_msg
+        
+        # ✅ الملف موجود الآن، التحقق من المحتوى
         try:
             with open(requirements_file, 'r', encoding='utf-8') as f:
-                requirements_content = f.read().strip()
-                requirements_list = [line for line in requirements_content.split('\n') if line.strip() and not line.startswith('#')]
+                content = f.read().strip()
+                requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
             
-            requirements_count = len(requirements_list)
-            if requirements_count > 0:
-                await status_message.edit_text(f"🚀 بدء تثبيت {requirements_count} مكتبة...\n\n📋 قائمة المكتبات:\n" + "\n".join(requirements_list[:10]) + ("\n..." if len(requirements_list) > 10 else ""))
-            else:
-                await status_message.edit_text("⚠️ ملف المتطلبات فارغ أو لا يحتوي على مكتبات صالحة")
+            if not requirements_list:
+                await status_message.edit_text("⚠️ ملف المتطلبات فارغ")
                 return False, "ملف المتطلبات فارغ"
+                
+            await status_message.edit_text(f"🚀 جاري تثبيت {len(requirements_list)} مكتبة...")
+            
         except Exception as e:
-            await status_message.edit_text(f"⚠️ خطأ في قراءة ملف المتطلبات: {str(e)}")
-            return False, f"خطأ في قراءة ملف المتطلبات: {str(e)}"
+            error_msg = f"❌ خطأ في قراءة الملف: {str(e)}"
+            await status_message.edit_text(error_msg)
+            return False, error_msg
 
-        # تثبيت المتطلبات مع التقدم في الوقت الحقيقي
-        await status_message.edit_text(f"🔧 جاري تثبيت {requirements_count} مكتبة...")
-
+        # 🛠️ بدء التثبيت
         try:
-            # استخدام pip مباشرة مع تحسينات
+            # التأكد من المسار مرة أخرى قبل التثبيت
+            if not os.path.exists(requirements_file):
+                await status_message.edit_text("❌ فقد الملف أثناء العملية!")
+                return False, "فقد الملف"
+            
+            # استخدام المسار المطلق للتأكد
+            abs_requirements_file = os.path.abspath(requirements_file)
+            abs_lib_folder = os.path.abspath(bot_lib_folder)
+            
+            logger.info(f"📍 المسار المطلق للمتطلبات: {abs_requirements_file}")
+            logger.info(f"📍 المسار المطلق للمكتبات: {abs_lib_folder}")
+            
+            # تنفيذ أمر التثبيت
             process = subprocess.Popen(
-                [sys.executable, '-m', 'pip', 'install', '-r', requirements_file, '--no-cache-dir'],
+                [sys.executable, '-m', 'pip', 'install', '-r', abs_requirements_file, '--no-cache-dir'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                cwd=bot_lib_folder
+                cwd=abs_lib_folder
             )
 
-            # قراءة المخرجات في الوقت الحقيقي
+            # قراءة المخرجات
             output_lines = []
             
             def read_output(stream, lines):
@@ -810,66 +834,61 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
                     if line.strip():
                         lines.append(line.strip())
             
-            # قراءة stdout و stderr في خيوط منفصلة
             stdout_thread = threading.Thread(target=read_output, args=(process.stdout, output_lines))
             stderr_thread = threading.Thread(target=read_output, args=(process.stderr, output_lines))
             
             stdout_thread.start()
             stderr_thread.start()
 
-            # الانتظار حتى انتهاء العملية مع تحديث التقدم
+            # الانتظار مع تحديثات
             last_update = time.time()
             while process.poll() is None:
-                time.sleep(1)
-                # تحديث التقدم كل 10 ثواني
-                if time.time() - last_update > 10:
-                    progress_text = f"🔧 جاري التثبيت...\nتم معالجة {len(output_lines)} سطر\nآخر تحديث: {datetime.now().strftime('%H:%M:%S')}"
+                time.sleep(2)
+                if time.time() - last_update > 15:
+                    current_time = datetime.now().strftime('%H:%M:%S')
                     try:
-                        await status_message.edit_text(progress_text)
+                        await status_message.edit_text(f"⏳ جاري التثبيت...\n🕒 {current_time}\n📊 تم معالجة {len(output_lines)} سطر")
                     except:
                         pass
                     last_update = time.time()
 
-            # الانتظار حتى انتهاء خيوط القراءة
-            stdout_thread.join(timeout=5)
-            stderr_thread.join(timeout=5)
+            # الانتظار لإنهاء القراءة
+            stdout_thread.join(timeout=10)
+            stderr_thread.join(timeout=10)
 
+            # معالجة النتيجة
             if process.returncode == 0:
-                # تحليل المخرجات لاستخراج المكتبات المثبتة
+                # النجاح
                 installed_packages = []
                 for line in output_lines:
                     if 'Successfully installed' in line:
-                        parts = line.split('Successfully installed')[-1].strip()
-                        installed_packages.extend([pkg.strip() for pkg in parts.split() if pkg.strip()])
+                        packages = line.split('Successfully installed')[-1].strip()
+                        installed_packages.extend([pkg.strip() for pkg in packages.split() if pkg.strip()])
                 
-                success_message = f"✅ تم تثبيت متطلبات {bot_name} بنجاح!\n\n"
+                success_msg = f"✅ تم تثبيت متطلبات {bot_name} بنجاح!\n\n"
                 if installed_packages:
-                    success_message += f"📊 تم تثبيت {len(installed_packages)} مكتبة:\n"
-                    success_message += ", ".join(installed_packages[:15])
-                    if len(installed_packages) > 15:
-                        success_message += f"\n... و {len(installed_packages) - 15} مكتبة أخرى"
-                success_message += "\n\n🎉 البوت جاهز للتشغيل!"
+                    success_msg += f"📦 تم تثبيت {len(installed_packages)} مكتبة\n"
+                    success_msg += "🎉 البوت جاهز للتشغيل!"
                 
-                await status_message.edit_text(success_message)
-                return True, "\n".join(output_lines[-20:])  # إرجاع آخر 20 سطر فقط
+                await status_message.edit_text(success_msg)
+                return True, "تم التثبيت بنجاح"
+                
             else:
-                # معالجة الأخطاء
-                error_output = "\n".join(output_lines[-10:])
-                error_message = f"❌ فشل تثبيت متطلبات {bot_name}:\n\n{error_output}"
-                await status_message.edit_text(error_message)
+                # الفشل
+                error_output = "\n".join(output_lines[-10:]) if output_lines else "لا توجد تفاصيل"
+                error_msg = f"❌ فشل التثبيت:\n{error_output}"
+                await status_message.edit_text(error_msg)
                 return False, error_output
 
-        except subprocess.TimeoutExpired:
-            error_message = f"❌ انتهى وقت تثبيت متطلبات {bot_name} (10 دقائق)"
-            await status_message.edit_text(error_message)
-            return False, "انتهى الوقت المحدد"
         except Exception as e:
-            error_message = f"❌ حدث خطأ غير متوقع أثناء التثبيت: {str(e)}"
-            await status_message.edit_text(error_message)
-            return False, str(e)
+            error_msg = f"❌ خطأ أثناء التثبيت: {str(e)}"
+            logger.error(error_msg)
+            await status_message.edit_text(error_msg)
+            return False, error_msg
 
     except Exception as e:
-        error_msg = f"❌ حدث خطأ غير متوقع: {str(e)}"
+        error_msg = f"❌ خطأ غير متوقع: {str(e)}"
+        logger.error(error_msg)
         try:
             await bot_instance.send_message(chat_id, error_msg)
         except:
@@ -877,18 +896,13 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
         return False, error_msg
 
 async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """معالجة تثبيت متطلبات البوت مع التقدم المرئي - الإصدار المعدل"""
+    """معالجة تثبيت متطلبات البوت - الإصدار المصحح"""
     query = update.callback_query
 
     if query is None:
-        logger.error("Query is None in install_requirements_handler")
         return CHOOSE_ACTION
 
     await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in install_requirements_handler")
-        return CHOOSE_ACTION
 
     user_id = query.from_user.id
     chat_id = query.message.chat_id
@@ -899,6 +913,7 @@ async def install_requirements_handler(update: Update, context: ContextTypes.DEF
         await query.edit_message_text("❌ البوت غير موجود!")
         return CHOOSE_ACTION
 
+    # البحث عن اسم البوت الفعلي
     actual_bot_name = None
     for existing_bot in user_bots[user_id]['bots'].keys():
         if existing_bot.lower() == bot_name.lower():
@@ -911,27 +926,53 @@ async def install_requirements_handler(update: Update, context: ContextTypes.DEF
 
     bot_info = user_bots[user_id]['bots'][actual_bot_name]
     
-    # التأكد من وجود مجلد المكتبات
-    lib_folder = bot_info.get('lib_folder', '')
-    if not lib_folder:
-        # إنشاء مسار افتراضي إذا لم يكن موجوداً
-        lib_folder = os.path.join(LIBRARY_FOLDER, f"{user_id}_{actual_bot_name}")
-        bot_info['lib_folder'] = lib_folder
-        save_data()
+    # 🔧 الإصلاح: استخدام المسار من bot_info مباشرة
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
     
-    # التأكد من وجود المجلد
-    if not os.path.exists(lib_folder):
-        os.makedirs(lib_folder, exist_ok=True)
-        logger.info(f"📁 تم إنشاء مجلد المكتبات: {lib_folder}")
+    # تسجيل المعلومات للتصحيح
+    logger.info(f"🔍 معلومات التثبيت:")
+    logger.info(f"   المستخدم: {user_id}")
+    logger.info(f"   البوت: {actual_bot_name}")
+    logger.info(f"   مسار المكتبات: {bot_info['lib_folder']}")
+    logger.info(f"   ملف المتطلبات: {requirements_file}")
+    logger.info(f"   الملف موجود: {os.path.exists(requirements_file)}")
 
-    requirements_file = os.path.join(lib_folder, 'requirements.txt')
+    # التحقق من وجود الملف
+    if not os.path.exists(requirements_file):
+        await query.edit_message_text(
+            f"❌ ملف المتطلبات غير موجود!\n"
+            f"المسار: `{requirements_file}`\n\n"
+            f"جاري إنشاء ملف جديد..."
+        )
+        
+        # إنشاء الملف تلقائياً
+        try:
+            os.makedirs(bot_info['lib_folder'], exist_ok=True)
+            default_content = """Flask[async]
+requests
+aiohttp
+googleapis-common-protos
+pycryptodome
+protobuf
+Werkzeug"""
+            
+            with open(requirements_file, 'w', encoding='utf-8') as f:
+                f.write(default_content)
+            
+            bot_info['has_requirements'] = True
+            save_data()
+            
+            await query.edit_message_text("✅ تم إنشاء ملف المتطلبات، جاري التثبيت...")
+        except Exception as e:
+            await query.edit_message_text(f"❌ فشل إنشاء الملف: {str(e)}")
+            return CHOOSE_ACTION
 
-    # بدء عملية التثبيت الحقيقية
-    await query.edit_message_text(f"🚀 بدء عملية تثبيت المتطلبات للبوت {actual_bot_name}...")
+    # بدء التثبيت
+    await query.edit_message_text(f"🚀 بدء تثبيت متطلبات {actual_bot_name}...")
 
-    # استخدام asyncio.create_task للتشغيل غير المتزامن
+    # التشغيل في مهمة منفصلة
     asyncio.create_task(
-        run_installation_process(requirements_file, lib_folder, user_id, chat_id, actual_bot_name, context.bot, bot_info)
+        run_installation_process(requirements_file, bot_info['lib_folder'], user_id, chat_id, actual_bot_name, context.bot, bot_info)
     )
 
     return CHOOSE_ACTION
@@ -3205,7 +3246,75 @@ Werkzeug"""
         f"• تم إصلاح {fixed_count} بوت\n"
         f"• البوت app_608 جاهز الآن لتثبيت المتطلبات"
     )
+async def fix_requirements_now(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إصلاح فوري لمشكلة المتطلبات"""
+    user_id = update.effective_user.id
+    bot_name = "app_55"  # أو يمكن جعله ديناميكياً
+    
+    load_data()
+    
+    if not await check_bot_exists(user_id, bot_name):
+        await update.message.reply_text("❌ البوت غير موجود!")
+        return
 
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await update.message.reply_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+    
+    # معلومات التصحيح
+    debug_info = f"""
+🔍 **تصحيح متطلبات {actual_bot_name}:**
+
+📁 مسار المكتبات: `{bot_info['lib_folder']}`
+📄 ملف المتطلبات: `{requirements_file}`
+✅ المجلد موجود: `{os.path.exists(bot_info['lib_folder'])}`
+✅ الملف موجود: `{os.path.exists(requirements_file)}`
+"""
+
+    if os.path.exists(requirements_file):
+        try:
+            with open(requirements_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
+                debug_info += f"📊 عدد المكتبات: {len(lines)}"
+        except Exception as e:
+            debug_info += f"❌ خطأ في القراءة: {e}"
+    else:
+        # إنشاء الملف
+        try:
+            os.makedirs(bot_info['lib_folder'], exist_ok=True)
+            content = """Flask[async]
+requests
+aiohttp
+googleapis-common-protos
+pycryptodome
+protobuf
+Werkzeug"""
+            
+            with open(requirements_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            bot_info['has_requirements'] = True
+            save_data()
+            
+            debug_info += "\n✅ تم إنشاء ملف المتطلبات بنجاح!"
+            
+        except Exception as e:
+            debug_info += f"\n❌ فشل إنشاء الملف: {e}"
+
+    await update.message.reply_text(debug_info, parse_mode='HTML')
+
+# أضف المعالج في main()
+application.add_handler(CommandHandler("fix_req", fix_requirements_now))
 async def system_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض حالة النظام المفصلة"""
     user_id = update.effective_user.id
