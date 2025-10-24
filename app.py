@@ -2547,16 +2547,13 @@ async def show_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 • إعادة التشغيل التلقائي: {'✅' if bot_info.get('auto_restart', False) else '❌'}
 • فترة الإعادة: {bot_info.get('restart_interval', 60)} ثانية
 • الحد الأقصى: {bot_info.get('max_restarts', 10)} مرة
-📁 **إدارة الملفات:**
-• مجلد المشروع: `{project_path}`
-• الملف الرئيسي: `{os.path.basename(bot_info['file_path'])}`
 """
 
     keyboard = [
         [InlineKeyboardButton("🌐 إضافة/تعديل متغير", callback_data=f"add_env_{actual_bot_name}")],
         [InlineKeyboardButton("🗑️ حذف متغير", callback_data=f"delete_env_{actual_bot_name}")],
         [InlineKeyboardButton("🔄 تعديل إعدادات التشغيل", callback_data=f"edit_restart_{actual_bot_name}")],
-        [InlineKeyboardButton("📁 إدارة ملفات البوت", callback_data=f"file_manager_{actual_bot_name}")],  # الزر الجديد
+        [InlineKeyboardButton("📁 إدارة ملفات البوت", callback_data=f"file_manager_{actual_bot_name}")], 
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_to_manage_{actual_bot_name}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
