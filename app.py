@@ -758,9 +758,9 @@ def get_python_files(directory):
         logger.error(f"فشل البحث عن ملفات بايثون: {e}")
     return python_files
 
-# ======= نظام تثبيت المتطلبات الحقيقي ======= #
+# ======= نظام تثبيت المتطلبات الحقيقي المُصلح ======= #
 async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance):
-    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي"""
+    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي - الإصدار المُصلح"""
     try:
         # إرسال رسالة بدء التثبيت
         status_message = await bot_instance.send_message(
@@ -794,13 +794,27 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
                 await status_message.edit_text(error_msg)
                 return False, error_msg
 
-        # تحديد مسار pip بناءً على النظام
-        if os.name != 'nt':
+        # تحديد مسار pip بناءً على النظام بشكل صحيح
+        if os.name != 'nt':  # Linux/Mac
             pip_path = os.path.join(venv_path, 'bin', 'pip')
             python_path = os.path.join(venv_path, 'bin', 'python')
-        else:
+            
+            # التأكد من أن الملف قابل للتنفيذ
+            if not os.path.exists(pip_path):
+                # محاولة استخدام pip3
+                pip_path = os.path.join(venv_path, 'bin', 'pip3')
+        else:  # Windows
             pip_path = os.path.join(venv_path, 'Scripts', 'pip.exe')
             python_path = os.path.join(venv_path, 'Scripts', 'python.exe')
+            
+            # بديل إذا كان بدون .exe
+            if not os.path.exists(pip_path):
+                pip_path = os.path.join(venv_path, 'Scripts', 'pip')
+
+        # التحقق من وجود pip
+        if not os.path.exists(pip_path):
+            await status_message.edit_text("❌ لم يتم العثور على pip في البيئة الافتراضية")
+            return False, "لم يتم العثور على pip"
 
         # تحديث pip أولاً
         await status_message.edit_text("🔄 جاري تحديث pip...")
@@ -825,69 +839,65 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
                 requirements_list = [line for line in requirements_content.split('\n') if line.strip() and not line.startswith('#')]
             
             requirements_count = len(requirements_list)
-            await status_message.edit_text(f"🚀 بدء تثبيت {requirements_count} مكتبة...\n\n📋 قائمة المكتبات:\n" + "\n".join(requirements_list[:10]) + ("\n..." if len(requirements_list) > 10 else ""))
-        except:
-            await status_message.edit_text("🚀 بدء تثبيت المتطلبات...")
+            if requirements_count > 0:
+                await status_message.edit_text(f"🚀 بدء تثبيت {requirements_count} مكتبة...\n\n📋 قائمة المكتبات:\n" + "\n".join(requirements_list[:10]) + ("\n..." if len(requirements_list) > 10 else ""))
+            else:
+                await status_message.edit_text("⚠️ ملف المتطلبات فارغ أو لا يحتوي على مكتبات صالحة")
+                return False, "ملف المتطلبات فارغ"
+        except Exception as e:
+            await status_message.edit_text(f"⚠️ خطأ في قراءة ملف المتطلبات: {str(e)}")
+            return False, f"خطأ في قراءة ملف المتطلبات: {str(e)}"
 
         # تثبيت المتطلبات مع التقدم في الوقت الحقيقي
-        process = subprocess.Popen(
-            [pip_path, 'install', '-r', requirements_file],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
+        await status_message.edit_text(f"🔧 جاري تثبيت {requirements_count} مكتبة...")
 
-        # قراءة المخرجات في الوقت الحقيقي
-        output_lines = []
-        installed_packages = []
-        current_package = ""
-        
-        while True:
-            output = process.stdout.readline()
-            if output == '' and process.poll() is not None:
-                break
-            if output:
-                output_lines.append(output.strip())
+        try:
+            # استخدام subprocess.run بدلاً من Popen لتبسيط العملية
+            process = subprocess.run(
+                [pip_path, 'install', '-r', requirements_file],
+                capture_output=True,
+                text=True,
+                timeout=600,  # 10 دقائق كحد أقصى
+                cwd=bot_lib_folder
+            )
+
+            if process.returncode == 0:
+                # تحليل المخرجات لاستخراج المكتبات المثبتة
+                output_lines = process.stdout.split('\n')
+                installed_packages = []
                 
-                # تحليل output لاستخراج أسماء المكتبات المثبتة
-                if 'Successfully installed' in output:
-                    # استخراج أسماء المكتبات المثبتة
-                    parts = output.split('Successfully installed')[-1].strip()
-                    installed_packages.extend([pkg.strip() for pkg in parts.split() if pkg.strip()])
+                for line in output_lines:
+                    if 'Successfully installed' in line:
+                        # استخراج أسماء المكتبات المثبتة
+                        parts = line.split('Successfully installed')[-1].strip()
+                        installed_packages.extend([pkg.strip() for pkg in parts.split() if pkg.strip()])
                 
-                # تحديث الرسالة كل 3 أسطر أو عند اكتمال تثبيت مكتبة
-                if len(output_lines) % 3 == 0 or 'Successfully installed' in output:
-                    progress_text = f"📦 جاري تثبيت متطلبات {bot_name}...\n\n"
-                    
-                    if installed_packages:
-                        progress_text += f"✅ تم تثبيت {len(installed_packages)} مكتبة:\n"
-                        progress_text += ", ".join(installed_packages[-5:]) + "\n\n"
-                    
-                    if output_lines:
-                        progress_text += "📝 آخر عملية:\n" + "\n".join(output_lines[-3:])
-                    
-                    try:
-                        await status_message.edit_text(progress_text)
-                    except:
-                        pass  # تجاهل أخطاء التعديل
+                success_message = f"✅ تم تثبيت متطلبات {bot_name} بنجاح!\n\n"
+                if installed_packages:
+                    success_message += f"📊 تم تثبيت {len(installed_packages)} مكتبة:\n"
+                    success_message += ", ".join(installed_packages[:15])  # عرض أول 15 مكتبة فقط
+                    if len(installed_packages) > 15:
+                        success_message += f"\n... و {len(installed_packages) - 15} مكتبة أخرى"
+                success_message += "\n\n🎉 البوت جاهز للتشغيل!"
+                
+                await status_message.edit_text(success_message)
+                return True, process.stdout
+            else:
+                # معالجة الأخطاء
+                error_output = process.stderr if process.stderr else process.stdout
+                error_lines = error_output.split('\n')[-10:]  # آخر 10 أسطر للخطأ
+                error_message = f"❌ فشل تثبيت متطلبات {bot_name}:\n\n" + "\n".join(error_lines)
+                await status_message.edit_text(error_message)
+                return False, error_output
 
-        # انتظار انتهاء العملية
-        return_code = process.wait()
-
-        if return_code == 0:
-            success_message = f"✅ تم تثبيت متطلبات {bot_name} بنجاح!\n\n"
-            success_message += f"📊 تم تثبيت {len(installed_packages)} مكتبة:\n"
-            success_message += ", ".join(installed_packages) + "\n\n"
-            success_message += "🎉 البوت جاهز للتشغيل!"
-            await status_message.edit_text(success_message)
-            return True, "\n".join(output_lines)
-        else:
-            error_output = "\n".join(output_lines[-10:])  # آخر 10 أسطر للخطأ
-            error_message = f"❌ فشل تثبيت متطلبات {bot_name}:\n\n{error_output}"
+        except subprocess.TimeoutExpired:
+            error_message = f"❌ انتهى وقت تثبيت متطلبات {bot_name} (10 دقائق)"
             await status_message.edit_text(error_message)
-            return False, error_output
+            return False, "انتهى الوقت المحدد"
+        except Exception as e:
+            error_message = f"❌ حدث خطأ غير متوقع أثناء التثبيت: {str(e)}"
+            await status_message.edit_text(error_message)
+            return False, str(e)
 
     except Exception as e:
         error_msg = f"❌ حدث خطأ غير متوقع: {str(e)}"
@@ -898,7 +908,7 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
         return False, error_msg
 
 async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """معالجة تثبيت متطلبات البوت مع التقدم المرئي"""
+    """معالجة تثبيت متطلبات البوت مع التقدم المرئي - الإصدار المُصلح"""
     query = update.callback_query
 
     if query is None:
@@ -940,44 +950,36 @@ async def install_requirements_handler(update: Update, context: ContextTypes.DEF
     # بدء عملية التثبيت الحقيقية
     await query.edit_message_text(f"🚀 بدء عملية تثبيت المتطلبات للبوت {actual_bot_name}...")
 
-    # تشغيل عملية التثبيت في thread منفصل
-    def install_thread():
-        try:
-            # استخدام asyncio.run_coroutine_threadsafe لتشغيل الكوروتين من thread منفصل
-            future = asyncio.run_coroutine_threadsafe(
-                install_requirements_real_time(
-                    requirements_file, 
-                    bot_info['lib_folder'], 
-                    user_id, 
-                    chat_id, 
-                    actual_bot_name, 
-                    context.bot
-                ),
-                asyncio.get_event_loop()
-            )
-            success, message = future.result(timeout=600)  # 10 دقائق كحد أقصى
-            
-            # تحديث حالة البوت بعد التثبيت
-            if success:
-                bot_info['requirements_installed'] = True
-                save_data()
-                
-        except asyncio.TimeoutError:
-            asyncio.run_coroutine_threadsafe(
-                context.bot.send_message(chat_id, "❌ انتهى وقت تثبيت المتطلبات (10 دقائق)"),
-                asyncio.get_event_loop()
-            )
-        except Exception as e:
-            logger.error(f"خطأ في thread التثبيت: {e}")
-
-    # بدء thread التثبيت
-    thread = threading.Thread(target=install_thread, daemon=True)
-    thread.start()
+    # استخدام asyncio.create_task للتشغيل غير المتزامن
+    asyncio.create_task(
+        run_installation_process(requirements_file, bot_info['lib_folder'], user_id, chat_id, actual_bot_name, context.bot, bot_info)
+    )
 
     return CHOOSE_ACTION
 
+async def run_installation_process(requirements_file, lib_folder, user_id, chat_id, bot_name, bot_instance, bot_info):
+    """تشغيل عملية التثبيت في مهمة منفصلة"""
+    try:
+        success, message = await install_requirements_real_time(
+            requirements_file, 
+            lib_folder, 
+            user_id, 
+            chat_id, 
+            bot_name, 
+            bot_instance
+        )
+        
+        # تحديث حالة البوت بعد التثبيت
+        if success:
+            bot_info['requirements_installed'] = True
+            save_data()
+            
+    except Exception as e:
+        logger.error(f"خطأ في عملية التثبيت: {e}")
+        await bot_instance.send_message(chat_id, f"❌ فشل عملية التثبيت: {str(e)}")
+
 async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة رفع ملف المتطلبات"""
+    """معالجة رفع ملف المتطلبات - الإصدار المُصلح"""
     user_id = update.effective_user.id
 
     if not update.message.document:
@@ -1016,12 +1018,24 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
         file = await context.bot.get_file(document.file_id)
         await file.download_to_drive(requirements_file)
 
-        # قراءة المحتوى لعرضه
-        with open(requirements_file, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-            requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
+        # التحقق من صحة الملف
+        try:
+            with open(requirements_file, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
+            
+            if not requirements_list:
+                await update.message.reply_text("⚠️ ملف المتطلبات فارغ أو لا يحتوي على مكتبات صالحة")
+                os.remove(requirements_file)
+                return REQUIREMENTS_SETUP
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ ملف المتطلبات غير صالح: {str(e)}")
+            os.remove(requirements_file)
+            return REQUIREMENTS_SETUP
 
         bot_info['has_requirements'] = True
+        bot_info['requirements_installed'] = False  # إعادة تعيين حالة التثبيت
         save_data()
 
         keyboard = [
@@ -1043,7 +1057,7 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """عرض متطلبات البوت بشكل مفصل"""
+    """عرض متطلبات البوت بشكل مفصل - الإصدار المُصلح"""
     query = update.callback_query
 
     if query is None:
@@ -1114,6 +1128,7 @@ async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAU
 
     except Exception as e:
         await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
+
 # ======= دوال مساعدة للبوتات ======= #
 async def check_bot_exists(user_id: int, bot_name: str) -> bool:
     """فحص إذا كان البوت موجود في قاعدة البيانات"""
@@ -2274,6 +2289,7 @@ async def handle_requirements_input(update: Update, context: ContextTypes.DEFAUL
         await update.message.reply_text(error_message)
 
     return ConversationHandler.END
+
 async def show_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض إدارة البوتات للمستخدم"""
     user_id = update.effective_user.id
