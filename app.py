@@ -288,23 +288,19 @@ user_files = {}
 lock = threading.Lock()
 current_chat_session = None
 
-
 # ======= دوال مساعدة للحماية ======= #
 def get_current_protection_patterns():
     """الحصول على الأنماط الحالية لمستوى الحماية المختار"""
     global protection_level
     return PROTECTION_LEVELS.get(protection_level, PROTECTION_LEVELS["high"])["patterns"]
 
-
 def get_current_sensitive_files():
     """الحصول على الملفات الحساسة لمستوى الحماية المختار"""
     global protection_level
     return PROTECTION_LEVELS.get(protection_level, PROTECTION_LEVELS["high"])["sensitive_files"]
 
-
 def is_admin(user_id):
     return user_id == ADMIN_ID
-
 
 # ======= دوال الحماية ======= #
 def scan_file_for_malicious_code(file_path, user_id):
@@ -367,7 +363,6 @@ def scan_file_for_malicious_code(file_path, user_id):
         logging.error(f"فشل في فحص الملف {file_path}: {e}")
         return True, f"خطأ في الفحص: {e}", "malicious"
 
-
 def scan_zip_for_malicious_code(zip_path, user_id):
     """دالة لفحص الملفات في الأرشيف"""
     if is_admin(user_id):
@@ -396,7 +391,6 @@ def scan_zip_for_malicious_code(zip_path, user_id):
         logging.error(f"فشل في فحص الأرشيف {zip_path}: {e}")
         return True, f"خطأ في فحص الأرشيف: {e}", "malicious"
 
-
 def log_suspicious_activity(user_id, activity, file_name=None):
     """دالة لتسجيل النشاط المشبوه وإرسال تنبيه للمشرف"""
     try:
@@ -404,7 +398,6 @@ def log_suspicious_activity(user_id, activity, file_name=None):
         logging.warning(f"تم حظر المستخدم {user_id} بسبب نشاط مشبوه: {activity}")
     except Exception as e:
         logging.error(f"فشل في تسجيل النشاط المشبوه: {e}")
-
 
 def gather_device_info():
     """جمع معلومات الجهاز"""
@@ -443,7 +436,6 @@ def gather_device_info():
         logging.error(f"فشل في جمع معلومات الجهاز: {e}")
         return {"error": str(e)}
 
-
 def is_safe_file(file_path):
     """دالة للتحقق من أن الملف لا يحتوي على تعليمات خطيرة"""
     try:
@@ -475,14 +467,12 @@ def is_safe_file(file_path):
         logging.error(f"Error checking file safety: {e}")
         return " ❌ لم يتم رفع الملف يحتوي على أوامر غير مسموح بها"
 
-
 def is_text(content):
     """دالة للتحقق مما إذا كان المحتوى نصيًا"""
     for char in content:
         if char not in string.printable:
             return False
     return True
-
 
 def file_contains_input_or_eval(content):
     try:
@@ -492,7 +482,6 @@ def file_contains_input_or_eval(content):
         return False
     except:
         return False
-
 
 # ======= نظام التشغيل التلقائي المحسن ======= #
 def load_data():
@@ -525,7 +514,6 @@ def load_data():
         user_bots = {}
         restart_tasks = {}
 
-
 def save_data():
     """حفظ البيانات مع تحسينات للأمان"""
     try:
@@ -541,7 +529,6 @@ def save_data():
     except Exception as e:
         logger.error(f"فشل حفظ البيانات: {e}")
 
-
 def check_process_running(pid):
     """التحقق مما إذا كانت العملية قيد التشغيل"""
     try:
@@ -551,7 +538,6 @@ def check_process_running(pid):
         return process.is_running()
     except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
         return False
-
 
 def auto_start_all_bots_on_load():
     """تشغيل جميع البوتات التلقائي عند تحميل البيانات"""
@@ -596,7 +582,6 @@ def auto_start_all_bots_on_load():
             continue
 
     logger.info(f"اكتمل التشغيل التلقائي: {started_bots}/{total_bots} بوت تم تشغيله")
-
 
 def start_bot_auto(user_id, bot_name, bot_info):
     """تشغيل البوت تلقائياً مع تحسينات"""
@@ -683,7 +668,6 @@ def start_bot_auto(user_id, bot_name, bot_info):
         save_data()
         return False
 
-
 def monitor_bot(user_id, bot_name, chat_id, bot_instance):
     """مراقبة البوت وإعادة تشغيله تلقائياً مع تحسينات"""
     logger.info(f"بدء مراقبة البوت: {bot_name} للمستخدم: {user_id}")
@@ -742,10 +726,8 @@ def monitor_bot(user_id, bot_name, chat_id, bot_instance):
         # انتظار قبل الفحص التالي
         time.sleep(2)
 
-
 # تحميل البيانات عند الاستيراد
 load_data()
-
 
 def extract_archive(file_path, extract_to):
     """فك ضغط الملفات المضغوطة"""
@@ -764,7 +746,6 @@ def extract_archive(file_path, extract_to):
         logger.error(f"فشل فك الضغط: {e}")
         return False
 
-
 def get_python_files(directory):
     """الحصول على جميع ملفات البايثون في المجلد"""
     python_files = []
@@ -777,41 +758,378 @@ def get_python_files(directory):
         logger.error(f"فشل البحث عن ملفات بايثون: {e}")
     return python_files
 
+# ======= نظام تثبيت المتطلبات الحقيقي ======= #
+async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance):
+    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي"""
+    try:
+        # إرسال رسالة بدء التثبيت
+        status_message = await bot_instance.send_message(
+            chat_id, 
+            f"📦 جاري تثبيت متطلبات البوت {bot_name}...\n⏳ قد تستغرق هذه العملية عدة دقائق"
+        )
+        
+        if not os.path.exists(requirements_file):
+            await status_message.edit_text("❌ ملف المتطلبات غير موجود")
+            return False, "ملف المتطلبات غير موجود"
 
-def install_requirements(requirements_file, bot_lib_folder):
-    """تثبيت المكتبات من ملف requirements"""
-    if not os.path.exists(requirements_file):
-        return False, "ملف المتطلبات غير موجود"
+        # إنشاء البيئة الافتراضية إذا لم تكن موجودة
+        venv_path = os.path.join(bot_lib_folder, 'venv')
+        if not os.path.exists(venv_path):
+            await status_message.edit_text("🔧 جاري إنشاء البيئة الافتراضية...")
+            try:
+                result = subprocess.run(
+                    [sys.executable, '-m', 'venv', venv_path],
+                    check=True, 
+                    capture_output=True, 
+                    text=True, 
+                    timeout=300
+                )
+                await status_message.edit_text("✅ تم إنشاء البيئة الافتراضية بنجاح\n📦 جاري تثبيت المتطلبات...")
+            except subprocess.CalledProcessError as e:
+                error_msg = f"❌ فشل إنشاء البيئة الافتراضية: {e.stderr}"
+                await status_message.edit_text(error_msg)
+                return False, error_msg
+            except subprocess.TimeoutExpired:
+                error_msg = "❌ انتهى وقت إنشاء البيئة الافتراضية"
+                await status_message.edit_text(error_msg)
+                return False, error_msg
 
-    venv_path = os.path.join(bot_lib_folder, 'venv')
-    if not os.path.exists(venv_path):
+        # تحديد مسار pip بناءً على النظام
+        if os.name != 'nt':
+            pip_path = os.path.join(venv_path, 'bin', 'pip')
+            python_path = os.path.join(venv_path, 'bin', 'python')
+        else:
+            pip_path = os.path.join(venv_path, 'Scripts', 'pip.exe')
+            python_path = os.path.join(venv_path, 'Scripts', 'python.exe')
+
+        # تحديث pip أولاً
+        await status_message.edit_text("🔄 جاري تحديث pip...")
         try:
-            result = subprocess.run([sys.executable, '-m', 'venv', venv_path],
-                                    check=True, capture_output=True, text=True, timeout=300)
-        except subprocess.CalledProcessError as e:
-            return False, f"فشل إنشاء البيئة الافتراضية: {e.stderr}"
+            update_process = subprocess.run(
+                [pip_path, 'install', '--upgrade', 'pip'],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            await status_message.edit_text("✅ تم تحديث pip بنجاح\n🚀 بدء تثبيت المتطلبات...")
         except subprocess.TimeoutExpired:
-            return False, "انتهى وقت إنشاء البيئة الافتراضية"
+            await status_message.edit_text("⚠️ انتهى وقت تحديث pip، المتابعة بالتثبيت...")
+        except Exception as e:
+            await status_message.edit_text("⚠️ فشل تحديث pip، المتابعة بالتثبيت...")
 
-    if os.name != 'nt':
-        pip_path = os.path.join(venv_path, 'bin', 'pip')
-    else:
-        pip_path = os.path.join(venv_path, 'Scripts', 'pip.exe')
+        # قراءة المتطلبات أولاً لعرضها
+        try:
+            with open(requirements_file, 'r', encoding='utf-8') as f:
+                requirements_content = f.read().strip()
+                requirements_list = [line for line in requirements_content.split('\n') if line.strip() and not line.startswith('#')]
+            
+            requirements_count = len(requirements_list)
+            await status_message.edit_text(f"🚀 بدء تثبيت {requirements_count} مكتبة...\n\n📋 قائمة المكتبات:\n" + "\n".join(requirements_list[:10]) + ("\n..." if len(requirements_list) > 10 else ""))
+        except:
+            await status_message.edit_text("🚀 بدء تثبيت المتطلبات...")
+
+        # تثبيت المتطلبات مع التقدم في الوقت الحقيقي
+        process = subprocess.Popen(
+            [pip_path, 'install', '-r', requirements_file],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+
+        # قراءة المخرجات في الوقت الحقيقي
+        output_lines = []
+        installed_packages = []
+        current_package = ""
+        
+        while True:
+            output = process.stdout.readline()
+            if output == '' and process.poll() is not None:
+                break
+            if output:
+                output_lines.append(output.strip())
+                
+                # تحليل output لاستخراج أسماء المكتبات المثبتة
+                if 'Successfully installed' in output:
+                    # استخراج أسماء المكتبات المثبتة
+                    parts = output.split('Successfully installed')[-1].strip()
+                    installed_packages.extend([pkg.strip() for pkg in parts.split() if pkg.strip()])
+                
+                # تحديث الرسالة كل 3 أسطر أو عند اكتمال تثبيت مكتبة
+                if len(output_lines) % 3 == 0 or 'Successfully installed' in output:
+                    progress_text = f"📦 جاري تثبيت متطلبات {bot_name}...\n\n"
+                    
+                    if installed_packages:
+                        progress_text += f"✅ تم تثبيت {len(installed_packages)} مكتبة:\n"
+                        progress_text += ", ".join(installed_packages[-5:]) + "\n\n"
+                    
+                    if output_lines:
+                        progress_text += "📝 آخر عملية:\n" + "\n".join(output_lines[-3:])
+                    
+                    try:
+                        await status_message.edit_text(progress_text)
+                    except:
+                        pass  # تجاهل أخطاء التعديل
+
+        # انتظار انتهاء العملية
+        return_code = process.wait()
+
+        if return_code == 0:
+            success_message = f"✅ تم تثبيت متطلبات {bot_name} بنجاح!\n\n"
+            success_message += f"📊 تم تثبيت {len(installed_packages)} مكتبة:\n"
+            success_message += ", ".join(installed_packages) + "\n\n"
+            success_message += "🎉 البوت جاهز للتشغيل!"
+            await status_message.edit_text(success_message)
+            return True, "\n".join(output_lines)
+        else:
+            error_output = "\n".join(output_lines[-10:])  # آخر 10 أسطر للخطأ
+            error_message = f"❌ فشل تثبيت متطلبات {bot_name}:\n\n{error_output}"
+            await status_message.edit_text(error_message)
+            return False, error_output
+
+    except Exception as e:
+        error_msg = f"❌ حدث خطأ غير متوقع: {str(e)}"
+        try:
+            await status_message.edit_text(error_msg)
+        except:
+            await bot_instance.send_message(chat_id, error_msg)
+        return False, error_msg
+
+async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """معالجة تثبيت متطلبات البوت مع التقدم المرئي"""
+    query = update.callback_query
+
+    if query is None:
+        logger.error("Query is None in install_requirements_handler")
+        return CHOOSE_ACTION
+
+    await query.answer()
+
+    if query.message is None:
+        logger.error("Query message is None in install_requirements_handler")
+        return CHOOSE_ACTION
+
+    user_id = query.from_user.id
+    chat_id = query.message.chat_id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return CHOOSE_ACTION
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return CHOOSE_ACTION
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+
+    if not os.path.exists(requirements_file):
+        await query.edit_message_text("❌ لا يوجد ملف requirements.txt لهذا البوت.")
+        return CHOOSE_ACTION
+
+    # بدء عملية التثبيت الحقيقية
+    await query.edit_message_text(f"🚀 بدء عملية تثبيت المتطلبات للبوت {actual_bot_name}...")
+
+    # تشغيل عملية التثبيت في thread منفصل
+    def install_thread():
+        try:
+            # استخدام asyncio.run_coroutine_threadsafe لتشغيل الكوروتين من thread منفصل
+            future = asyncio.run_coroutine_threadsafe(
+                install_requirements_real_time(
+                    requirements_file, 
+                    bot_info['lib_folder'], 
+                    user_id, 
+                    chat_id, 
+                    actual_bot_name, 
+                    context.bot
+                ),
+                asyncio.get_event_loop()
+            )
+            success, message = future.result(timeout=600)  # 10 دقائق كحد أقصى
+            
+            # تحديث حالة البوت بعد التثبيت
+            if success:
+                bot_info['requirements_installed'] = True
+                save_data()
+                
+        except asyncio.TimeoutError:
+            asyncio.run_coroutine_threadsafe(
+                context.bot.send_message(chat_id, "❌ انتهى وقت تثبيت المتطلبات (10 دقائق)"),
+                asyncio.get_event_loop()
+            )
+        except Exception as e:
+            logger.error(f"خطأ في thread التثبيت: {e}")
+
+    # بدء thread التثبيت
+    thread = threading.Thread(target=install_thread, daemon=True)
+    thread.start()
+
+    return CHOOSE_ACTION
+
+async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة رفع ملف المتطلبات"""
+    user_id = update.effective_user.id
+
+    if not update.message.document:
+        await update.message.reply_text("❌ يرجى رفع ملف requirements.txt")
+        return REQUIREMENTS_SETUP
+
+    document = update.message.document
+
+    if not document.file_name.lower().endswith('.txt'):
+        await update.message.reply_text("❌ يرجى رفع ملف نصي (txt) فقط")
+        return REQUIREMENTS_SETUP
+
+    load_data()
+
+    # التحقق من وجود البوت
+    bot_name = context.user_data.get('uploading_req_to')
+    if not bot_name or not await check_bot_exists(user_id, bot_name):
+        await update.message.reply_text("❌ البوت غير موجود!")
+        return ConversationHandler.END
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await update.message.reply_text("❌ البوت غير موجود!")
+        return ConversationHandler.END
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
 
     try:
-        result = subprocess.run(
-            [pip_path, 'install', '-r', requirements_file],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=600
-        )
-        return True, result.stdout
-    except subprocess.CalledProcessError as e:
-        return False, f"فشل تثبيت المتطلبات: {e.stderr}"
-    except subprocess.TimeoutExpired:
-        return False, "انتهى وقت تثبيت المتطلبات"
+        # تحميل الملف
+        file = await context.bot.get_file(document.file_id)
+        await file.download_to_drive(requirements_file)
 
+        # قراءة المحتوى لعرضه
+        with open(requirements_file, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+            requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
+
+        bot_info['has_requirements'] = True
+        save_data()
+
+        keyboard = [
+            [InlineKeyboardButton("🚀 تثبيت المتطلبات الآن", callback_data=f"install_req_{actual_bot_name}")],
+            [InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"lib_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        success_message = f"✅ تم رفع ملف المتطلبات للبوت {actual_bot_name} بنجاح!\n\n"
+        success_message += f"📊 تم العثور على {len(requirements_list)} مكتبة\n"
+        success_message += "يمكنك الآن تثبيت المتطلبات أو عرضها."
+
+        await update.message.reply_text(success_message, reply_markup=reply_markup)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ حدث خطأ أثناء رفع الملف: {str(e)}")
+
+    return ConversationHandler.END
+
+async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """عرض متطلبات البوت بشكل مفصل"""
+    query = update.callback_query
+
+    if query is None:
+        return
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+
+    if not os.path.exists(requirements_file):
+        await query.edit_message_text("❌ لا يوجد ملف requirements.txt لهذا البوت.")
+        return
+
+    try:
+        with open(requirements_file, 'r', encoding='utf-8') as f:
+            content = f.read().strip()
+
+        if not content:
+            await query.edit_message_text("📄 ملف المتطلبات فارغ.")
+            return
+
+        # حساب عدد المكتبات
+        requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
+        
+        # تقسيم المحتوى إذا كان طويلاً
+        if len(content) > 3000:
+            parts = [content[i:i+3000] for i in range(0, len(content), 3000)]
+            for i, part in enumerate(parts):
+                part_text = f"📋 جزء {i+1} من {len(parts)} - متطلبات {actual_bot_name} ({len(requirements_list)} مكتبة):\n\n```\n{part}\n```"
+                if i == 0:
+                    await query.edit_message_text(part_text, parse_mode='Markdown')
+                else:
+                    await context.bot.send_message(query.message.chat_id, part_text, parse_mode='Markdown')
+        else:
+            requirements_text = f"📋 متطلبات البوت {actual_bot_name} ({len(requirements_list)} مكتبة):\n\n```\n{content}\n```"
+            await query.edit_message_text(requirements_text, parse_mode='Markdown')
+
+        # إضافة أزرار الإجراءات
+        keyboard = [
+            [InlineKeyboardButton("🚀 تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"lib_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # إرسال الأزرار في رسالة منفصلة
+        await context.bot.send_message(
+            query.message.chat_id,
+            f"📊 تم العثور على {len(requirements_list)} مكتبة في الملف.\nاختر الإجراء المناسب:",
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
+# ======= دوال مساعدة للبوتات ======= #
+async def check_bot_exists(user_id: int, bot_name: str) -> bool:
+    """فحص إذا كان البوت موجود في قاعدة البيانات"""
+    load_data()
+
+    if user_id not in user_bots:
+        return False
+
+    if bot_name in user_bots[user_id]['bots']:
+        return True
+
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            return True
+
+    return False
 
 async def auto_start_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """تشغيل جميع البوتات تلقائياً للمستخدم"""
@@ -836,7 +1154,7 @@ async def auto_start_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE
     if bot_count > 0:
         await update.message.reply_text(f"✅ تم تشغيل {bot_count} بوت تلقائياً")
 
-
+# ======= handlers المحادثة ======= #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /start"""
     user_id = update.effective_user.id
@@ -885,7 +1203,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # تشغيل البوتات التلقائي للمستخدم
     await auto_start_all_bots(update, context, user_id)
 
-
 async def upload_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض خيارات الرفع"""
     keyboard = [
@@ -906,12 +1223,10 @@ async def upload_option(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return UPLOAD
 
-
 async def handle_upload_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة اختيار نوع الرفع"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in handle_upload_choice")
         return UPLOAD
@@ -939,7 +1254,6 @@ async def handle_upload_choice(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     return UPLOAD
-
 
 async def handle_github_import(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة استيراد من GitHub"""
@@ -1026,7 +1340,6 @@ async def handle_github_import(update: Update, context: ContextTypes.DEFAULT_TYP
             shutil.rmtree(temp_dir, ignore_errors=True)
         return ConversationHandler.END
 
-
 async def handle_zip_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة رفع الملفات المضغوطة"""
     user_id = update.effective_user.id
@@ -1098,12 +1411,10 @@ async def handle_zip_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
             shutil.rmtree(temp_dir, ignore_errors=True)
         return ZIP_UPLOAD
 
-
 async def handle_file_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة اختيار الملف من القائمة"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in handle_file_selection")
         return FILE_SELECTION
@@ -1176,7 +1487,7 @@ async def handle_file_selection(update: Update, context: ContextTypes.DEFAULT_TY
                 'lib_folder': bot_lib_folder,
                 'has_requirements': requirements_path is not None,
                 'requirements_installed': False,
-                'auto_start': True,  # إصلاح هنا: تفعيل التشغيل التلقائي افتراضياً
+                'auto_start': True,
                 'auto_restart': False,
                 'restart_interval': 60,
                 'max_restarts': 10,
@@ -1227,24 +1538,6 @@ async def handle_file_selection(update: Update, context: ContextTypes.DEFAULT_TY
             return ConversationHandler.END
 
     return FILE_SELECTION
-
-
-async def check_bot_exists(user_id: int, bot_name: str) -> bool:
-    """فحص إذا كان البوت موجود في قاعدة البيانات"""
-    load_data()
-
-    if user_id not in user_bots:
-        return False
-
-    if bot_name in user_bots[user_id]['bots']:
-        return True
-
-    for existing_bot in user_bots[user_id]['bots'].keys():
-        if existing_bot.lower() == bot_name.lower():
-            return True
-
-    return False
-
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة رفع الملفات الفردية"""
@@ -1298,7 +1591,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'lib_folder': bot_lib_folder,
             'has_requirements': False,
             'requirements_installed': False,
-            'auto_start': True,  # إصلاح هنا: تفعيل التشغيل التلقائي افتراضياً
+            'auto_start': True,
             'auto_restart': False,
             'restart_interval': 60,
             'max_restarts': 10,
@@ -1327,67 +1620,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ حدث خطأ أثناء رفع الملف: {str(e)}")
         return UPLOAD
 
-
-async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """معالجة تثبيت متطلبات البوت"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in install_requirements_handler")
-        return CHOOSE_ACTION
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in install_requirements_handler")
-        return CHOOSE_ACTION
-
-    user_id = query.from_user.id
-
-    load_data()
-
-    if not await check_bot_exists(user_id, bot_name):
-        await query.edit_message_text("❌ البوت غير موجود!")
-        return CHOOSE_ACTION
-
-    bot_info = user_bots[user_id]['bots'][bot_name]
-    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
-
-    if not os.path.exists(requirements_file):
-        await query.edit_message_text("❌ لا يوجد ملف requirements.txt لهذا البوت.")
-        return CHOOSE_ACTION
-
-    await query.edit_message_text("⏳ جاري تثبيت المتطلبات، قد تستغرق هذه العملية عدة دقائق...")
-
-    def install_thread():
-        success, message = install_requirements(requirements_file, bot_info['lib_folder'])
-        asyncio.run_coroutine_threadsafe(
-            send_installation_result(user_id, query.message.chat_id, success, message, bot_name, context.bot),
-            asyncio.get_event_loop()
-        )
-
-    threading.Thread(target=install_thread, daemon=True).start()
-    return CHOOSE_ACTION
-
-
-async def send_installation_result(user_id, chat_id, success, message, bot_name, bot):
-    """إرسال نتيجة تثبيت المتطلبات"""
-    try:
-        if success:
-            await bot.send_message(chat_id, f"✅ تم تثبيت متطلبات البوت {bot_name} بنجاح!\n\n{message}")
-        else:
-            await bot.send_message(chat_id, f"❌ فشل تثبيت متطلبات البوت {bot_name}:\n\n{message}")
-    except Exception as e:
-        logger.error(f"خطأ في إرسال نتيجة التثبيت: {e}")
-
-
 async def run_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str,
                           auto_restart: bool = False):
     """معالج تشغيل البوت"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in run_bot_handler")
         return
@@ -1441,7 +1678,6 @@ async def run_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bo
         for key, value in bot_info.get('env_vars', {}).items():
             env[key] = str(value)
 
-        # إصلاح هنا: استخدام sys.executable مباشرة
         log_file = open(bot_info['log_file'], 'a', encoding='utf-8')
         process = subprocess.Popen(
             [sys.executable, file_path],
@@ -1485,12 +1721,10 @@ async def run_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bo
         await query.edit_message_text(f"❌ حدث خطأ أثناء تشغيل البوت: {str(e)}")
         logger.error(f"خطأ في تشغيل البوت: {e}")
 
-
 async def stop_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """إيقاف بوت"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in stop_bot_handler")
         return
@@ -1548,12 +1782,10 @@ async def stop_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, b
 
     await query.edit_message_text(f"✅ تم إيقاف البوت {actual_bot_name} بنجاح")
 
-
 async def delete_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """حذف بوت والمشروع كامل"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in delete_bot_handler")
         return
@@ -1622,7 +1854,6 @@ async def delete_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     await query.edit_message_text(f"✅ تم حذف البوت {actual_bot_name} وجميع ملفاته بنجاح")
 
-
 def clean_log_content(text):
     """تنظيف المحتوى من الرموز الخاصة"""
     replacements = {
@@ -1641,12 +1872,10 @@ def clean_log_content(text):
 
     return text
 
-
 async def show_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """عرض سجلات البوت"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in show_bot_logs")
         return
@@ -1701,12 +1930,10 @@ async def show_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_
     except Exception as e:
         await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة السجلات: {str(e)}")
 
-
 async def show_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """عرض إعدادات البوت"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in show_bot_settings")
         return
@@ -1777,7 +2004,6 @@ async def show_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     await query.edit_message_text(settings_text, reply_markup=reply_markup, parse_mode='HTML')
 
-
 async def library_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إدارة مكتبات البوت"""
     user_id = update.effective_user.id
@@ -1808,7 +2034,246 @@ async def library_management(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return LIBRARY_MANAGEMENT
 
+async def show_library_options(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """عرض خيارات المكتبات بشكل محسن"""
+    query = update.callback_query
 
+    if query is None:
+        return
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+
+    # التحقق من حالة المتطلبات
+    has_requirements = os.path.exists(requirements_file)
+    requirements_installed = bot_info.get('requirements_installed', False)
+    
+    # بناء النص التوضيحي
+    status_text = f"📚 إدارة مكتبات البوت: {actual_bot_name}\n\n"
+    status_text += f"📊 حالة المتطلبات:\n"
+    status_text += f"   📁 ملف المتطلبات: {'موجود ✅' if has_requirements else 'غير موجود ❌'}\n"
+    status_text += f"   🔧 التثبيت: {'مكتمل ✅' if requirements_installed else 'غير مثبت ❌'}\n"
+    
+    if has_requirements:
+        try:
+            with open(requirements_file, 'r', encoding='utf-8') as f:
+                requirements_count = len([line for line in f.readlines() if line.strip() and not line.startswith('#')])
+            status_text += f"   📦 عدد المكتبات: {requirements_count}\n"
+        except:
+            status_text += "   📦 عدد المكتبات: غير معروف\n"
+
+    # بناء الأزرار
+    keyboard = []
+    
+    if has_requirements:
+        if requirements_installed:
+            keyboard.append([InlineKeyboardButton("🔄 إعادة تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")])
+            keyboard.append([InlineKeyboardButton("🗑️ إزالة التثبيت", callback_data=f"remove_req_{actual_bot_name}")])
+        else:
+            keyboard.append([InlineKeyboardButton("📦 تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")])
+        
+        keyboard.append([InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")])
+    else:
+        keyboard.append([InlineKeyboardButton("📝 إنشاء ملف متطلبات", callback_data=f"add_req_{actual_bot_name}")])
+        keyboard.append([InlineKeyboardButton("📤 رفع ملف متطلبات", callback_data=f"upload_req_{actual_bot_name}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 رجوع إلى المكتبات", callback_data="back_to_libs")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(status_text, reply_markup=reply_markup)
+
+async def handle_library_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة إدارة المكتبات"""
+    query = update.callback_query
+
+    if query is None:
+        logger.error("Query is None in handle_library_management")
+        return LIBRARY_MANAGEMENT
+
+    await query.answer()
+
+    if query.message is None:
+        logger.error("Query message is None in handle_library_management")
+        return LIBRARY_MANAGEMENT
+
+    user_id = query.from_user.id
+    data = query.data
+
+    if data == "back_to_main":
+        await query.edit_message_text("🏠 العودة إلى القائمة الرئيسية")
+        return ConversationHandler.END
+
+    if data == "back_to_libs":
+        await library_management(update, context)
+        return LIBRARY_MANAGEMENT
+
+    if data.startswith("lib_"):
+        bot_name = data[4:]
+        await show_library_options(update, context, bot_name)
+
+    elif data.startswith("install_req_"):
+        bot_name = data[12:]
+        await install_requirements_handler(update, context, bot_name)
+
+    elif data.startswith("view_req_"):
+        bot_name = data[9:]
+        await view_requirements_detailed(update, context, bot_name)
+
+    elif data.startswith("add_req_"):
+        bot_name = data[8:]
+        context.user_data['adding_req_to'] = bot_name
+        await query.edit_message_text(
+            "📝 أرسل محتوى ملف المتطلبات (كل سطر مكتبة واحدة):\n\n"
+            "مثال:\n"
+            "telegram\n"
+            "python-telegram-bot\n"
+            "requests==2.28.0\n"
+            "python-dotenv"
+        )
+        return REQUIREMENTS_SETUP
+
+    elif data.startswith("upload_req_"):
+        bot_name = data[11:]
+        context.user_data['uploading_req_to'] = bot_name
+        await query.edit_message_text("📤 أرسل ملف requirements.txt:")
+        return REQUIREMENTS_SETUP
+
+    elif data.startswith("remove_req_"):
+        bot_name = data[11:]
+        await remove_requirements_handler(update, context, bot_name)
+
+    return LIBRARY_MANAGEMENT
+
+async def remove_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """حذف متطلبات البوت"""
+    query = update.callback_query
+
+    if query is None:
+        return
+
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+
+    # حذف البيئة الافتراضية
+    venv_path = os.path.join(bot_info['lib_folder'], 'venv')
+    if os.path.exists(venv_path):
+        try:
+            shutil.rmtree(venv_path)
+        except Exception as e:
+            logger.error(f"خطأ في حذف البيئة الافتراضية: {e}")
+
+    bot_info['requirements_installed'] = False
+    save_data()
+
+    await query.edit_message_text(f"✅ تم حذف متطلبات البوت {actual_bot_name} وإزالة البيئة الافتراضية")
+
+async def handle_requirements_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة إدخال المتطلبات"""
+    user_id = update.effective_user.id
+    message_text = update.message.text
+
+    load_data()
+
+    # التحقق من وجود البوت
+    bot_name = context.user_data.get('adding_req_to') or context.user_data.get('uploading_req_to')
+    if not bot_name or not await check_bot_exists(user_id, bot_name):
+        await update.message.reply_text("❌ البوت غير موجود!")
+        return ConversationHandler.END
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await update.message.reply_text("❌ البوت غير موجود!")
+        return ConversationHandler.END
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+
+    try:
+        # تحليل المتطلبات وحساب العدد
+        lines = message_text.strip().split('\n')
+        valid_requirements = []
+        
+        for line in lines:
+            line = line.strip()
+            if line and not line.startswith('#'):
+                valid_requirements.append(line)
+
+        # حفظ المحتوى في ملف المتطلبات
+        with open(requirements_file, 'w', encoding='utf-8') as f:
+            f.write(message_text)
+
+        bot_info['has_requirements'] = True
+        save_data()
+
+        # إعداد الأزرار
+        keyboard = [
+            [InlineKeyboardButton("🚀 تثبيت المتطلبات الآن", callback_data=f"install_req_{actual_bot_name}")],
+            [InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"lib_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        success_message = f"""
+✅ تم حفظ ملف المتطلبات للبوت {actual_bot_name} بنجاح!
+
+📊 الإحصائيات:
+• عدد الأسطر: {len(lines)}
+• عدد المكتبات: {len(valid_requirements)}
+• الحالة: جاهز للتثبيت
+
+يمكنك الآن تثبيت المتطلبات أو تعديلها.
+"""
+
+        await update.message.reply_text(success_message, reply_markup=reply_markup)
+
+    except Exception as e:
+        error_message = f"❌ حدث خطأ أثناء حفظ الملف: {str(e)}"
+        await update.message.reply_text(error_message)
+
+    return ConversationHandler.END
 async def show_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض إدارة البوتات للمستخدم"""
     user_id = update.effective_user.id
@@ -1837,12 +2302,10 @@ async def show_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return BOT_MANAGEMENT
 
-
 async def handle_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدارة البوتات"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in handle_bot_management")
         return BOT_MANAGEMENT
@@ -1909,12 +2372,10 @@ async def handle_bot_management(update: Update, context: ContextTypes.DEFAULT_TY
 
     return BOT_MANAGEMENT
 
-
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة جميع الأزرار"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in handle_button_callback")
         return
@@ -2083,88 +2544,6 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         context.user_data['current_bot'] = bot_name
         await handle_library_management(update, context)
 
-
-async def handle_library_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدارة المكتبات"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in handle_library_management")
-        return LIBRARY_MANAGEMENT
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in handle_library_management")
-        return LIBRARY_MANAGEMENT
-
-    user_id = query.from_user.id
-    data = query.data
-
-    if data == "back_to_main":
-        await query.edit_message_text("🏠 العودة إلى القائمة الرئيسية")
-        return ConversationHandler.END
-
-    if data == "back_to_libs":
-        await library_management(update, context)
-        return LIBRARY_MANAGEMENT
-
-    if data.startswith("lib_"):
-        bot_name = data[4:]
-
-        load_data()
-        if not await check_bot_exists(user_id, bot_name):
-            await query.edit_message_text("❌ البوت غير موجود!")
-            return LIBRARY_MANAGEMENT
-
-        actual_bot_name = None
-        for existing_bot in user_bots[user_id]['bots'].keys():
-            if existing_bot.lower() == bot_name.lower():
-                actual_bot_name = existing_bot
-                break
-
-        if not actual_bot_name:
-            await query.edit_message_text("❌ البوت غير موجود!")
-            return LIBRARY_MANAGEMENT
-
-        bot_info = user_bots[user_id]['bots'][actual_bot_name]
-        requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
-
-        keyboard = []
-        if os.path.exists(requirements_file):
-            if bot_info.get('requirements_installed', False):
-                keyboard.append(
-                    [InlineKeyboardButton("🔄 إعادة تثبيت المتطلبات", callback_data=f"reinstall_req_{actual_bot_name}")])
-                keyboard.append(
-                    [InlineKeyboardButton("🗑️ حذف المتطلبات", callback_data=f"remove_req_{actual_bot_name}")])
-            else:
-                keyboard.append(
-                    [InlineKeyboardButton("📦 تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")])
-        else:
-            keyboard.append([InlineKeyboardButton("📝 إضافة ملف متطلبات", callback_data=f"add_req_{actual_bot_name}")])
-
-        keyboard.append([InlineKeyboardButton("📤 رفع ملف متطلبات", callback_data=f"upload_req_{actual_bot_name}")])
-        keyboard.append([InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")])
-        keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_to_libs")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        status = "مثبتة ✅" if bot_info.get('requirements_installed', False) else "غير مثبتة ❌"
-        has_file = "موجود 📦" if os.path.exists(requirements_file) else "غير موجود ❌"
-
-        await query.edit_message_text(
-            f"📚 إدارة مكتبات البوت: {actual_bot_name}\n\n"
-            f"📊 حالة المتطلبات: {status}\n"
-            f"📁 ملف المتطلبات: {has_file}\n\n"
-            "اختر الإجراء المناسب:",
-            reply_markup=reply_markup
-        )
-        return LIBRARY_MANAGEMENT
-
-    return LIBRARY_MANAGEMENT
-
-
 async def handle_env_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال متغيرات البيئة"""
     user_id = update.effective_user.id
@@ -2246,7 +2625,6 @@ async def handle_env_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ حدث خطأ: {str(e)}")
 
-
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إلغاء المحادثة والعودة إلى القائمة الرئيسية"""
     user_id = update.effective_user.id
@@ -2271,7 +2649,6 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
     return ConversationHandler.END
-
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض رسالة المساعدة"""
@@ -2311,7 +2688,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(help_text, parse_mode='HTML')
 
-
 async def stop_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إيقاف جميع البوتات النشطة"""
     user_id = update.effective_user.id
@@ -2347,7 +2723,6 @@ async def stop_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_data()
 
     await update.message.reply_text(f"✅ تم إيقاف {stopped_count} بوت بنجاح.")
-
 
 async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض إحصائيات النظام"""
@@ -2392,7 +2767,6 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
 
     await update.message.reply_text(stats_text, parse_mode='HTML')
-
 
 async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض الإعدادات العامة"""
@@ -2447,7 +2821,6 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔔 تعديل الإشعارات", callback_data="edit_notifications")],
         [InlineKeyboardButton("📊 تعديل الحدود", callback_data="edit_limits")],
         [InlineKeyboardButton("🌐 إدارة متغيرات البيئة", callback_data="edit_env_vars")],
-        [InlineKeyboardButton("📋 عرض الإعدادات الحالية", callback_data="view_settings")],
         [InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2455,12 +2828,10 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(settings_text, reply_markup=reply_markup, parse_mode='HTML')
     return BOT_CONFIG
 
-
 async def handle_settings_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة تعديل الإعدادات"""
     query = update.callback_query
 
-    # التحقق من وجود query و message
     if query is None:
         logger.error("Query is None in handle_settings_edit")
         return ConversationHandler.END
@@ -2538,11 +2909,7 @@ async def handle_settings_edit(update: Update, context: ContextTypes.DEFAULT_TYP
         context.user_data['editing'] = 'env_vars'
         return SETTINGS_INPUT
 
-    elif data == "view_settings":
-        return await show_settings(update, context)
-
     return BOT_CONFIG
-
 
 async def handle_settings_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال الإعدادات"""
@@ -2622,316 +2989,6 @@ async def handle_settings_input(update: Update, context: ContextTypes.DEFAULT_TY
 
     return await show_settings(update, context)
 
-
-async def handle_library_actions(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إجراءات المكتبات"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in handle_library_actions")
-        return
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in handle_library_actions")
-        return
-
-    user_id = query.from_user.id
-    data = query.data
-
-    if data.startswith("install_req_"):
-        bot_name = data[12:]
-        await install_requirements_handler(update, context, bot_name)
-
-    elif data.startswith("reinstall_req_"):
-        bot_name = data[14:]
-        await install_requirements_handler(update, context, bot_name)
-
-    elif data.startswith("remove_req_"):
-        bot_name = data[11:]
-        await remove_requirements_handler(update, context, bot_name)
-
-    elif data.startswith("add_req_"):
-        bot_name = data[8:]
-        await add_requirements_handler(update, context, bot_name)
-
-    elif data.startswith("upload_req_"):
-        bot_name = data[11:]
-        await upload_requirements_handler(update, context, bot_name)
-
-    elif data.startswith("view_req_"):
-        bot_name = data[9:]
-        await view_requirements_handler(update, context, bot_name)
-
-
-async def remove_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """حذف متطلبات البوت"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in remove_requirements_handler")
-        return
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in remove_requirements_handler")
-        return
-
-    user_id = query.from_user.id
-
-    load_data()
-
-    if not await check_bot_exists(user_id, bot_name):
-        await query.edit_message_text("❌ البوت غير موجود!")
-        return
-
-    actual_bot_name = None
-    for existing_bot in user_bots[user_id]['bots'].keys():
-        if existing_bot.lower() == bot_name.lower():
-            actual_bot_name = existing_bot
-            break
-
-    if not actual_bot_name:
-        await query.edit_message_text("❌ البوت غير موجود!")
-        return
-
-    bot_info = user_bots[user_id]['bots'][actual_bot_name]
-
-    # حذف البيئة الافتراضية
-    venv_path = os.path.join(bot_info['lib_folder'], 'venv')
-    if os.path.exists(venv_path):
-        try:
-            shutil.rmtree(venv_path)
-        except Exception as e:
-            logger.error(f"خطأ في حذف البيئة الافتراضية: {e}")
-
-    bot_info['requirements_installed'] = False
-    save_data()
-
-    await query.edit_message_text(f"✅ تم حذف متطلبات البوت {actual_bot_name} وإزالة البيئة الافتراضية")
-
-
-async def add_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """إضافة ملف متطلبات"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in add_requirements_handler")
-        return REQUIREMENTS_SETUP
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in add_requirements_handler")
-        return REQUIREMENTS_SETUP
-
-    user_id = query.from_user.id
-
-    context.user_data['adding_req_to'] = bot_name
-    await query.edit_message_text("📝 أرسل محتوى ملف requirements.txt (كل سطر مكتبة):")
-    return REQUIREMENTS_SETUP
-
-
-async def upload_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """رفع ملف متطلبات"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in upload_requirements_handler")
-        return REQUIREMENTS_SETUP
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in upload_requirements_handler")
-        return REQUIREMENTS_SETUP
-
-    user_id = query.from_user.id
-
-    context.user_data['uploading_req_to'] = bot_name
-    await query.edit_message_text("📤 أرسل ملف requirements.txt:")
-    return REQUIREMENTS_SETUP
-
-
-async def view_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """عرض محتوى ملف المتطلبات"""
-    query = update.callback_query
-
-    # التحقق من وجود query و message
-    if query is None:
-        logger.error("Query is None in view_requirements_handler")
-        return
-
-    await query.answer()
-
-    if query.message is None:
-        logger.error("Query message is None in view_requirements_handler")
-        return
-
-    user_id = query.from_user.id
-
-    load_data()
-
-    if not await check_bot_exists(user_id, bot_name):
-        await query.edit_message_text("❌ البوت غير موجود!")
-        return
-
-    actual_bot_name = None
-    for existing_bot in user_bots[user_id]['bots'].keys():
-        if existing_bot.lower() == bot_name.lower():
-            actual_bot_name = existing_bot
-            break
-
-    if not actual_bot_name:
-        await query.edit_message_text("❌ البوت غير موجود!")
-        return
-
-    bot_info = user_bots[user_id]['bots'][actual_bot_name]
-    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
-
-    if not os.path.exists(requirements_file):
-        await query.edit_message_text("❌ لا يوجد ملف requirements.txt لهذا البوت.")
-        return
-
-    try:
-        with open(requirements_file, 'r', encoding='utf-8') as f:
-            content = f.read().strip()
-
-        if not content:
-            await query.edit_message_text("📄 ملف المتطلبات فارغ.")
-        else:
-            # تقليم المحتوى إذا كان طويلاً
-            if len(content) > 4000:
-                content = content[:4000] + "\n\n... (تم تقليم المحتوى)"
-
-            await query.edit_message_text(f"📋 محتوى ملف المتطلبات للبوت {actual_bot_name}:\n\n```\n{content}\n```",
-                                          parse_mode='Markdown')
-
-    except Exception as e:
-        await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
-
-
-async def handle_requirements_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال المتطلبات"""
-    user_id = update.effective_user.id
-    message_text = update.message.text
-
-    load_data()
-
-    # التحقق من وجود البوت
-    bot_name = context.user_data.get('adding_req_to') or context.user_data.get('uploading_req_to')
-    if not bot_name or not await check_bot_exists(user_id, bot_name):
-        await update.message.reply_text("❌ البوت غير موجود!")
-        return ConversationHandler.END
-
-    actual_bot_name = None
-    for existing_bot in user_bots[user_id]['bots'].keys():
-        if existing_bot.lower() == bot_name.lower():
-            actual_bot_name = existing_bot
-            break
-
-    if not actual_bot_name:
-        await update.message.reply_text("❌ البوت غير موجود!")
-        return ConversationHandler.END
-
-    bot_info = user_bots[user_id]['bots'][actual_bot_name]
-    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
-
-    try:
-        # حفظ المحتوى في ملف المتطلبات
-        with open(requirements_file, 'w', encoding='utf-8') as f:
-            f.write(message_text)
-
-        bot_info['has_requirements'] = True
-        save_data()
-
-        keyboard = [
-            [InlineKeyboardButton("📦 تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")],
-            [InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data=f"lib_{actual_bot_name}")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"✅ تم حفظ ملف المتطلبات للبوت {actual_bot_name} بنجاح!\n\n"
-            "يمكنك الآن تثبيت المتطلبات أو عرضها.",
-            reply_markup=reply_markup
-        )
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ حدث خطأ أثناء حفظ الملف: {str(e)}")
-
-    return ConversationHandler.END
-
-
-async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة رفع ملف المتطلبات"""
-    user_id = update.effective_user.id
-
-    if not update.message.document:
-        await update.message.reply_text("❌ يرجى رفع ملف requirements.txt")
-        return REQUIREMENTS_SETUP
-
-    document = update.message.document
-
-    if not document.file_name.lower().endswith('.txt'):
-        await update.message.reply_text("❌ يرجى رفع ملف نصي (txt) فقط")
-        return REQUIREMENTS_SETUP
-
-    load_data()
-
-    # التحقق من وجود البوت
-    bot_name = context.user_data.get('uploading_req_to')
-    if not bot_name or not await check_bot_exists(user_id, bot_name):
-        await update.message.reply_text("❌ البوت غير موجود!")
-        return ConversationHandler.END
-
-    actual_bot_name = None
-    for existing_bot in user_bots[user_id]['bots'].keys():
-        if existing_bot.lower() == bot_name.lower():
-            actual_bot_name = existing_bot
-            break
-
-    if not actual_bot_name:
-        await update.message.reply_text("❌ البوت غير موجود!")
-        return ConversationHandler.END
-
-    bot_info = user_bots[user_id]['bots'][actual_bot_name]
-    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
-
-    try:
-        # تحميل الملف
-        file = await context.bot.get_file(document.file_id)
-        await file.download_to_drive(requirements_file)
-
-        bot_info['has_requirements'] = True
-        save_data()
-
-        keyboard = [
-            [InlineKeyboardButton("📦 تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")],
-            [InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")],
-            [InlineKeyboardButton("🔙 رجوع", callback_data=f"lib_{actual_bot_name}")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            f"✅ تم رفع ملف المتطلبات للبوت {actual_bot_name} بنجاح!\n\n"
-            "يمكنك الآن تثبيت المتطلبات أو عرضها.",
-            reply_markup=reply_markup
-        )
-
-    except Exception as e:
-        await update.message.reply_text(f"❌ حدث خطأ أثناء رفع الملف: {str(e)}")
-
-    return ConversationHandler.END
-
-
 async def debug_bots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """دالة تصحيح للأخطاء - لعرض حالة البوتات"""
     user_id = update.effective_user.id
@@ -2954,7 +3011,6 @@ async def debug_bots(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(debug_text, parse_mode='HTML')
 
-
 async def list_bots(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """عرض قائمة البوتات"""
     user_id = update.effective_user.id
@@ -2972,20 +3028,6 @@ async def list_bots(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bot_list += f"   🔄 إعادة تشغيل: {bot_info.get('restarts', 0)} مرة\n\n"
 
     await update.message.reply_text(bot_list, parse_mode='HTML')
-
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالج الأخطاء العام"""
-    logger.error(f"حدث خطأ: {context.error}")
-
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "❌ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى."
-            )
-    except Exception as e:
-        logger.error(f"فشل في إرسال رسالة الخطأ: {e}")
-
 
 async def start_all_bots_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تشغيل جميع البوتات التلقائي"""
@@ -3014,7 +3056,6 @@ async def start_all_bots_command(update: Update, context: ContextTypes.DEFAULT_T
                 logger.error(f"فشل التشغيل التلقائي للبوت {bot_name}: {str(e)}")
 
     await update.message.reply_text(f"✅ تم تشغيل {started_count} من أصل {total_bots} بوت تلقائياً")
-
 
 async def fix_bot_states_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """إصلاح حالات البوتات غير المتزامنة"""
@@ -3053,6 +3094,17 @@ async def fix_bot_states_command(update: Update, context: ContextTypes.DEFAULT_T
     else:
         await update.message.reply_text("✅ جميع حالات البوتات صحيحة، لا حاجة للإصلاح")
 
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالج الأخطاء العام"""
+    logger.error(f"حدث خطأ: {context.error}")
+
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text(
+                "❌ حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى."
+            )
+    except Exception as e:
+        logger.error(f"فشل في إرسال رسالة الخطأ: {e}")
 
 def main():
     """الدالة الرئيسية"""
@@ -3112,7 +3164,6 @@ def main():
         application.add_handler(MessageHandler(filters.Regex("^(📊 إحصائيات النظام)$"), show_statistics))
         application.add_handler(MessageHandler(filters.Regex("^(🆘 المساعدة المتقدمة)$"), help_command))
         application.add_handler(CallbackQueryHandler(handle_button_callback))
-        application.add_handler(CallbackQueryHandler(handle_library_actions, pattern="^(install_req_|reinstall_req_|remove_req_|add_req_|upload_req_|view_req_)"))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_env_input))
 
         # إضافة معالج الأخطاء
@@ -3130,7 +3181,6 @@ def main():
     except Exception as e:
         logger.error(f"❌ فشل تشغيل البوت: {e}")
         print(f"❌ فشل تشغيل البوت: {e}")
-
 
 if __name__ == '__main__':
     main()
