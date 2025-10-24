@@ -1304,6 +1304,353 @@ async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
 
 # ======= دوال مساعدة للبوتات ======= #
+
+
+# ======= دوال إدارة ملفات البوت ======= #
+async def list_bot_files(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """عرض ملفات البوت"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    
+    # الحصول على جميع الملفات في مجلد المشروع
+    project_path = bot_info.get('project_path') or os.path.dirname(bot_info['file_path'])
+    
+    if not os.path.exists(project_path):
+        await query.edit_message_text("❌ مجلد المشروع غير موجود!")
+        return
+
+    try:
+        # جمع معلومات الملفات
+        all_files = []
+        total_size = 0
+        
+        for root, dirs, files in os.walk(project_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, project_path)
+                file_size = os.path.getsize(file_path)
+                total_size += file_size
+                
+                all_files.append({
+                    'path': file_path,
+                    'rel_path': rel_path,
+                    'size': file_size,
+                    'is_python': file.endswith('.py')
+                })
+
+        # ترتيب الملفات بحيث تكون ملفات البايثون أولاً
+        all_files.sort(key=lambda x: (not x['is_python'], x['rel_path']))
+
+        # إنشاء قائمة الملفات
+        files_text = f"📁 **ملفات البوت: {actual_bot_name}**\n\n"
+        files_text += f"📊 إجمالي الملفات: {len(all_files)}\n"
+        files_text += f"💾 الحجم الإجمالي: {total_size / 1024:.2f} KB\n\n"
+        
+        # عرض الملفات (أول 20 ملف)
+        for i, file_info in enumerate(all_files[:20]):
+            icon = "🐍" if file_info['is_python'] else "📄"
+            size_kb = file_info['size'] / 1024
+            files_text += f"{icon} `{file_info['rel_path']}` ({size_kb:.1f} KB)\n"
+
+        if len(all_files) > 20:
+            files_text += f"\n... و {len(all_files) - 20} ملفات أخرى"
+
+        # أزرار التحكم
+        keyboard = [
+            [InlineKeyboardButton("📥 تحميل ملف", callback_data=f"download_file_{actual_bot_name}")],
+            [InlineKeyboardButton("🗑️ حذف ملف", callback_data=f"delete_file_{actual_bot_name}")],
+            [InlineKeyboardButton("📋 عرض جميع الملفات", callback_data=f"show_all_files_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"settings_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(files_text, reply_markup=reply_markup, parse_mode='HTML')
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ أثناء عرض الملفات: {str(e)}")
+
+async def download_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """تحميل ملف من البوت"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    project_path = bot_info.get('project_path') or os.path.dirname(bot_info['file_path'])
+
+    # الحصول على قائمة الملفات لعرضها للمستخدم
+    try:
+        files_list = []
+        for root, dirs, files in os.walk(project_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, project_path)
+                files_list.append((rel_path, file_path))
+
+        if not files_list:
+            await query.edit_message_text("❌ لا توجد ملفات للتحميل!")
+            return
+
+        # إنشاء لوحة اختيار الملفات
+        keyboard = []
+        for rel_path, full_path in files_list[:20]:  # عرض أول 20 ملف فقط
+            file_name = os.path.basename(rel_path)
+            keyboard.append([InlineKeyboardButton(f"📄 {file_name}", callback_data=f"dl_{actual_bot_name}_{hash(rel_path)}")])
+            context.user_data[f"file_path_{hash(rel_path)}"] = full_path
+
+        keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"file_manager_{actual_bot_name}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"📥 اختر الملف للتحميل من بوت {actual_bot_name}:",
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
+
+async def handle_file_download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة تحميل الملف"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    data = query.data
+
+    if data.startswith("dl_"):
+        parts = data.split('_')
+        bot_name = parts[1]
+        file_hash = int(parts[2])
+
+        file_path = context.user_data.get(f"file_path_{file_hash}")
+
+        if not file_path or not os.path.exists(file_path):
+            await query.edit_message_text("❌ الملف غير موجود!")
+            return
+
+        try:
+            file_size = os.path.getsize(file_path)
+            
+            if file_size > 50 * 1024 * 1024:  # 50MB limit for Telegram
+                await query.edit_message_text("❌ حجم الملف كبير جداً للتحميل عبر التليجرام (الحد: 50MB)")
+                return
+
+            # إرسال الملف
+            with open(file_path, 'rb') as file:
+                await context.bot.send_document(
+                    chat_id=query.message.chat_id,
+                    document=file,
+                    filename=os.path.basename(file_path),
+                    caption=f"📄 {os.path.basename(file_path)}\n🤖 {bot_name}"
+                )
+
+            await query.edit_message_text("✅ تم إرسال الملف بنجاح!")
+
+        except Exception as e:
+            await query.edit_message_text(f"❌ فشل تحميل الملف: {str(e)}")
+
+async def delete_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """حذف ملف من البوت"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    project_path = bot_info.get('project_path') or os.path.dirname(bot_info['file_path'])
+
+    # الحصول على قائمة الملفات
+    try:
+        files_list = []
+        for root, dirs, files in os.walk(project_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, project_path)
+                # منع حذف الملف الرئيسي للبوت
+                if file_path != bot_info['file_path']:
+                    files_list.append((rel_path, file_path))
+
+        if not files_list:
+            await query.edit_message_text("❌ لا توجد ملفات يمكن حذفها!")
+            return
+
+        # إنشاء لوحة اختيار الملفات
+        keyboard = []
+        for rel_path, full_path in files_list[:20]:  # عرض أول 20 ملف فقط
+            file_name = os.path.basename(rel_path)
+            keyboard.append([InlineKeyboardButton(f"🗑️ {file_name}", callback_data=f"del_{actual_bot_name}_{hash(rel_path)}")])
+            context.user_data[f"del_path_{hash(rel_path)}"] = full_path
+
+        keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"file_manager_{actual_bot_name}")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"🗑️ اختر الملف لحذفه من بوت {actual_bot_name}:\n\n"
+            "⚠️ تحذير: لا يمكن التراجع عن الحذف!",
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
+
+async def handle_file_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة حذف الملف"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    data = query.data
+
+    if data.startswith("del_"):
+        parts = data.split('_')
+        bot_name = parts[1]
+        file_hash = int(parts[2])
+
+        file_path = context.user_data.get(f"del_path_{file_hash}")
+
+        if not file_path or not os.path.exists(file_path):
+            await query.edit_message_text("❌ الملف غير موجود!")
+            return
+
+        try:
+            # التأكد من أن الملف ليس الملف الرئيسي للبوت
+            load_data()
+            bot_info = user_bots[user_id]['bots'][bot_name]
+            if file_path == bot_info['file_path']:
+                await query.edit_message_text("❌ لا يمكن حذف الملف الرئيسي للبوت!")
+                return
+
+            # حذف الملف
+            os.remove(file_path)
+            await query.edit_message_text(f"✅ تم حذف الملف: {os.path.basename(file_path)}")
+
+        except Exception as e:
+            await query.edit_message_text(f"❌ فشل حذف الملف: {str(e)}")
+
+async def show_all_bot_files(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """عرض جميع ملفات البوت بشكل مفصل"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    project_path = bot_info.get('project_path') or os.path.dirname(bot_info['file_path'])
+
+    try:
+        all_files = []
+        for root, dirs, files in os.walk(project_path):
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, project_path)
+                file_size = os.path.getsize(file_path)
+                all_files.append((rel_path, file_size, file.endswith('.py')))
+
+        # تقسيم الملفات إلى أجزاء إذا كانت كثيرة
+        files_text = f"📁 **جميع ملفات البوت: {actual_bot_name}**\n\n"
+        
+        for i, (rel_path, size, is_python) in enumerate(all_files):
+            icon = "🐍" if is_python else "📄"
+            size_kb = size / 1024
+            files_text += f"{icon} `{rel_path}` ({size_kb:.1f} KB)\n"
+            
+            if len(files_text) > 3000:  # حد التليجرام
+                files_text += f"\n... و {len(all_files) - i - 1} ملفات أخرى"
+                break
+
+        # إرسال الملفات كرسالة منفصلة
+        await context.bot.send_message(
+            query.message.chat_id,
+            files_text,
+            parse_mode='HTML'
+        )
+
+        # إعادة عرض لوحة التحكم
+        keyboard = [
+            [InlineKeyboardButton("📥 تحميل ملف", callback_data=f"download_file_{actual_bot_name}")],
+            [InlineKeyboardButton("🗑️ حذف ملف", callback_data=f"delete_file_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"file_manager_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"📊 تم عرض {len(all_files)} ملف من بوت {actual_bot_name}",
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
+
+
 async def check_bot_exists(user_id: int, bot_name: str) -> bool:
     """فحص إذا كان البوت موجود في قاعدة البيانات"""
     load_data()
@@ -2200,12 +2547,16 @@ async def show_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 • إعادة التشغيل التلقائي: {'✅' if bot_info.get('auto_restart', False) else '❌'}
 • فترة الإعادة: {bot_info.get('restart_interval', 60)} ثانية
 • الحد الأقصى: {bot_info.get('max_restarts', 10)} مرة
+📁 **إدارة الملفات:**
+• مجلد المشروع: `{project_path}`
+• الملف الرئيسي: `{os.path.basename(bot_info['file_path'])}`
 """
 
     keyboard = [
         [InlineKeyboardButton("🌐 إضافة/تعديل متغير", callback_data=f"add_env_{actual_bot_name}")],
         [InlineKeyboardButton("🗑️ حذف متغير", callback_data=f"delete_env_{actual_bot_name}")],
         [InlineKeyboardButton("🔄 تعديل إعدادات التشغيل", callback_data=f"edit_restart_{actual_bot_name}")],
+        [InlineKeyboardButton("📁 إدارة ملفات البوت", callback_data=f"file_manager_{actual_bot_name}")],  # الزر الجديد
         [InlineKeyboardButton("🔙 رجوع", callback_data=f"back_to_manage_{actual_bot_name}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2664,6 +3015,29 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         bot_name = data[11:]
         await run_bot_handler(update, context, bot_name, False)
 
+    # أزرار إدارة الملفات الجديدة
+    elif data.startswith("file_manager_"):
+        bot_name = data[13:]
+        await list_bot_files(update, context, bot_name)
+
+    elif data.startswith("download_file_"):
+        bot_name = data[14:]
+        await download_bot_file(update, context, bot_name)
+
+    elif data.startswith("delete_file_"):
+        bot_name = data[12:]
+        await delete_bot_file(update, context, bot_name)
+
+    elif data.startswith("show_all_files_"):
+        bot_name = data[15:]
+        await show_all_bot_files(update, context, bot_name)
+
+    elif data.startswith("dl_"):
+        await handle_file_download(update, context)
+
+    elif data.startswith("del_"):
+        await handle_file_delete(update, context)
+        
     elif data.startswith("run_restart_"):
         bot_name = data[12:]
         await run_bot_handler(update, context, bot_name, True)
@@ -3513,7 +3887,7 @@ def main():
                 FILE_SELECTION: [
                     CallbackQueryHandler(handle_file_selection, pattern="^(select_file_|cancel_selection)")],
                 CHOOSE_ACTION: [
-                    CallbackQueryHandler(handle_button_callback, pattern="^(run_|install_|settings_|delete_|cancel_)")],
+                    CallbackQueryHandler(handle_button_callback, pattern="^(run_|install_|settings_|delete_|file_manager_|download_file_|delete_file_|show_all_files_|dl_|del_|cancel_)")],
                 BOT_MANAGEMENT: [
                     CallbackQueryHandler(handle_bot_management, pattern="^(manage_|add_new_bot|back_to_)")],
                 LIBRARY_MANAGEMENT: [CallbackQueryHandler(handle_library_management,
