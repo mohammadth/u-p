@@ -772,6 +772,399 @@ def get_python_files(directory):
     return python_files
 
 # ======= نظام تثبيت المتطلبات المحسّن النهائي ======= #
+
+
+# ======= دوال تنظيف السجلات ======= #
+async def clean_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """تنظيف سجلات البوت"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    log_file = bot_info['log_file']
+
+    try:
+        if os.path.exists(log_file):
+            # حفظ نسخة احتياطية قبل المسح
+            backup_dir = os.path.join(LOG_FOLDER, 'backups')
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            backup_file = os.path.join(backup_dir, f"{actual_bot_name}_{int(time.time())}.log")
+            shutil.copy2(log_file, backup_file)
+            
+            # مسح محتوى الملف
+            with open(log_file, 'w', encoding='utf-8') as f:
+                f.write("")
+            
+            # مسح الملفات الاحتياطية القديمة (تحتفظ بآخر 5 نسخ فقط)
+            cleanup_old_backups(backup_dir, actual_bot_name, 5)
+            
+            await query.edit_message_text(f"✅ تم تنظيف سجلات البوت {actual_bot_name} بنجاح!\n\n📁 تم حفظ نسخة احتياطية")
+        else:
+            await query.edit_message_text("📝 لا توجد سجلات للتنظيف")
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ فشل تنظيف السجلات: {str(e)}")
+
+def cleanup_old_backups(backup_dir, bot_name, keep_count=5):
+    """مسح النسخ الاحتياطية القديمة"""
+    try:
+        # البحث عن جميع النسخ الاحتياطية للبوت
+        backup_files = []
+        for file in os.listdir(backup_dir):
+            if file.startswith(f"{bot_name}_") and file.endswith('.log'):
+                file_path = os.path.join(backup_dir, file)
+                backup_files.append((file_path, os.path.getctime(file_path)))
+        
+        # ترتيب حسب تاريخ الإنشاء (الأقدم أولاً)
+        backup_files.sort(key=lambda x: x[1])
+        
+        # مسح الملفات الزائدة
+        while len(backup_files) > keep_count:
+            old_file, _ = backup_files.pop(0)
+            try:
+                os.remove(old_file)
+                logger.info(f"تم مسح النسخة الاحتياطية القديمة: {old_file}")
+            except Exception as e:
+                logger.error(f"فشل مسح النسخة الاحتياطية {old_file}: {e}")
+                
+    except Exception as e:
+        logger.error(f"خطأ في تنظيف النسخ الاحتياطية: {e}")
+
+async def clean_all_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنظيف جميع سجلات البوتات"""
+    user_id = update.effective_user.id
+
+    load_data()
+
+    if user_id not in user_bots or not user_bots[user_id]['bots']:
+        await update.message.reply_text("❌ ليس لديك أي بوتات حتى الآن.")
+        return
+
+    cleaned_count = 0
+    total_bots = len(user_bots[user_id]['bots'])
+
+    for bot_name, bot_info in user_bots[user_id]['bots'].items():
+        log_file = bot_info['log_file']
+        
+        try:
+            if os.path.exists(log_file):
+                # حفظ نسخة احتياطية
+                backup_dir = os.path.join(LOG_FOLDER, 'backups')
+                os.makedirs(backup_dir, exist_ok=True)
+                backup_file = os.path.join(backup_dir, f"{bot_name}_{int(time.time())}.log")
+                shutil.copy2(log_file, backup_file)
+                
+                # مسح المحتوى
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.write("")
+                
+                cleaned_count += 1
+                
+        except Exception as e:
+            logger.error(f"فشل تنظيف سجلات البوت {bot_name}: {e}")
+
+    await update.message.reply_text(f"✅ تم تنظيف سجلات {cleaned_count} من أصل {total_bots} بوت")
+
+async def show_logs_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """عرض إحصائيات السجلات"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    log_file = bot_info['log_file']
+
+    try:
+        stats_text = f"📊 **إحصائيات سجلات البوت: {actual_bot_name}**\n\n"
+
+        if os.path.exists(log_file):
+            file_size = os.path.getsize(log_file)
+            stats_text += f"📁 حجم ملف السجل: {file_size / 1024:.2f} KB\n"
+            
+            if file_size > 0:
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    stats_text += f"📝 عدد الأسطر: {len(lines)}\n"
+                    
+                    # حساب عدد الأسطر في آخر 24 ساعة (افتراضي)
+                    recent_lines = len([line for line in lines if '202' in line[:4]])  # تبسيط
+                    stats_text += f"🕒 الأسعار الحديثة: {recent_lines}\n"
+            else:
+                stats_text += "📝 الملف فارغ\n"
+        else:
+            stats_text += "📝 لا يوجد ملف سجل\n"
+
+        # إحصائيات النسخ الاحتياطية
+        backup_dir = os.path.join(LOG_FOLDER, 'backups')
+        if os.path.exists(backup_dir):
+            backup_files = [f for f in os.listdir(backup_dir) if f.startswith(f"{actual_bot_name}_")]
+            stats_text += f"📦 النسخ الاحتياطية: {len(backup_files)}\n"
+            
+            if backup_files:
+                total_backup_size = sum(os.path.getsize(os.path.join(backup_dir, f)) for f in backup_files)
+                stats_text += f"💾 حجم النسخ: {total_backup_size / 1024 / 1024:.2f} MB\n"
+
+        keyboard = [
+            [InlineKeyboardButton("🧹 تنظيف السجلات", callback_data=f"clean_logs_{actual_bot_name}")],
+            [InlineKeyboardButton("📋 عرض السجلات", callback_data=f"logs_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"file_manager_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(stats_text, reply_markup=reply_markup, parse_mode='HTML')
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
+
+# ======= نظام التحكم في الاستضافة ======= #
+async def terminal_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """فتح واجهة التحكم في الاستضافة"""
+    user_id = update.effective_user.id
+    
+    # التحقق من صلاحية المستخدم (يمكنك تعديل هذا حسب احتياجك)
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton("📁 عرض الملفات", callback_data="term_ls")],
+        [InlineKeyboardButton("📊 حالة النظام", callback_data="term_status")],
+        [InlineKeyboardButton("🐍 إدارة بايثون", callback_data="term_python")],
+        [InlineKeyboardButton("📦 إدارة الحزم", callback_data="term_packages")],
+        [InlineKeyboardButton("🔧 أوامر مخصصة", callback_data="term_custom")],
+        [InlineKeyboardButton("❌ إغلاق", callback_data="term_close")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "🖥️ **وحدة التحكم في الاستضافة**\n\n"
+        "اختر نوع الأمر الذي تريد تنفيذه:\n\n"
+        "⚠️ **تحذير:** هذه الأوامر تنفذ مباشرة على الخادم!\n"
+        "استخدمها بحذر شديد.",
+        reply_markup=reply_markup,
+        parse_mode='HTML'
+    )
+
+async def execute_terminal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """تنفيذ أوامر الاستضافة"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    
+    if user_id != ADMIN_ID:
+        await query.edit_message_text("❌ هذا الأمر متاح للمشرف فقط")
+        return
+
+    data = query.data
+
+    if data == "term_ls":
+        await execute_command_and_send(update, context, "ls -la", "📁 عرض الملفات")
+
+    elif data == "term_status":
+        await execute_command_and_send(update, context, "top -bn1 | head -20", "📊 حالة النظام")
+
+    elif data == "term_python":
+        keyboard = [
+            [InlineKeyboardButton("🐍 إصدار بايثون", callback_data="cmd_python_version")],
+            [InlineKeyboardButton("📦 قائمة الحزم", callback_data="cmd_pip_list")],
+            [InlineKeyboardButton("🔍 معلومات النظام", callback_data="cmd_system_info")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="term_back")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("🐍 **إدارة بايثون والحزم**", reply_markup=reply_markup)
+
+    elif data == "term_packages":
+        keyboard = [
+            [InlineKeyboardButton("📦 تحديث pip", callback_data="cmd_pip_upgrade")],
+            [InlineKeyboardButton("🔍 البحث عن حزمة", callback_data="cmd_search_package")],
+            [InlineKeyboardButton("📊 حجم الحزم", callback_data="cmd_pip_size")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data="term_back")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text("📦 **إدارة الحزم**", reply_markup=reply_markup)
+
+    elif data == "term_custom":
+        context.user_data['waiting_for_command'] = True
+        await query.edit_message_text(
+            "⌨️ **أدخل الأمر الذي تريد تنفيذه:**\n\n"
+            "مثال:\n"
+            "• `pwd` - المسار الحالي\n"
+            "• `df -h` - مساحة التخزين\n"
+            "• `free -h` - الذاكرة\n"
+            "• `ps aux | grep python` - العمليات\n\n"
+            "⚠️ **تحذير:** الأوامر تنفذ بكامل الصلاحيات!"
+        )
+
+    elif data == "term_close":
+        await query.edit_message_text("✅ تم إغلاق وحدة التحكم")
+
+    elif data == "term_back":
+        await terminal_control(update, context)
+
+    # الأوامر الفرعية
+    elif data == "cmd_python_version":
+        await execute_command_and_send(update, context, "python --version", "🐍 إصدار بايثون")
+
+    elif data == "cmd_pip_list":
+        await execute_command_and_send(update, context, "pip list", "📦 قائمة الحزم")
+
+    elif data == "cmd_system_info":
+        await execute_command_and_send(update, context, "uname -a", "🔍 معلومات النظام")
+
+    elif data == "cmd_pip_upgrade":
+        await execute_command_and_send(update, context, "python -m pip install --upgrade pip", "📦 تحديث pip")
+
+    elif data == "cmd_pip_size":
+        await execute_command_and_send(update, context, "pip list --format=freeze | wc -l", "📊 عدد الحزم")
+
+async def execute_command_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str, title: str):
+    """تنفيذ أمر وإرسال النتيجة"""
+    query = update.callback_query
+    
+    try:
+        await query.edit_message_text(f"⏳ جاري تنفيذ: `{command}`")
+        
+        # تنفيذ الأمر
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        stdout, stderr = process.communicate(timeout=30)
+        
+        result_text = f"🎯 **{title}**\n\n"
+        result_text += f"```bash\n$ {command}\n```\n\n"
+        
+        if stdout:
+            result_text += f"📤 **الإخراج:**\n```\n{stdout}\n```\n"
+        
+        if stderr:
+            result_text += f"❌ **الأخطاء:**\n```\n{stderr}\n```\n"
+        
+        result_text += f"\n📊 **كود الخروج:** {process.returncode}"
+        
+        # تقسيم النتيجة إذا كانت طويلة
+        if len(result_text) > 4000:
+            parts = [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]
+            for i, part in enumerate(parts):
+                if i == 0:
+                    await query.edit_message_text(part, parse_mode='HTML')
+                else:
+                    await context.bot.send_message(query.message.chat_id, part, parse_mode='HTML')
+        else:
+            await query.edit_message_text(result_text, parse_mode='HTML')
+            
+    except subprocess.TimeoutExpired:
+        await query.edit_message_text(f"⏰ انتهى الوقت المحدد للأمر: `{command}`")
+    except Exception as e:
+        await query.edit_message_text(f"❌ خطأ في التنفيذ: {str(e)}")
+
+async def handle_custom_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الأوامر المخصصة من المستخدم"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
+        return
+
+    if not context.user_data.get('waiting_for_command'):
+        return
+
+    command = update.message.text.strip()
+    
+    if command.lower() in ['exit', 'quit', 'cancel', 'إلغاء']:
+        context.user_data['waiting_for_command'] = False
+        await update.message.reply_text("✅ تم إلغاء وضع الأوامر")
+        return
+
+    # تنفيذ الأمر
+    try:
+        await update.message.reply_text(f"⏳ جاري تنفيذ: `{command}`")
+        
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        stdout, stderr = process.communicate(timeout=60)  # وقت أطول للأوامر المخصصة
+        
+        result_text = f"🎯 **نتيجة الأمر:** `{command}`\n\n"
+        
+        if stdout:
+            # تقصير الإخراج الطويل
+            if len(stdout) > 3000:
+                stdout = stdout[:3000] + "\n... (تم تقصير الإخراج)"
+            result_text += f"📤 **الإخراج:**\n```\n{stdout}\n```\n"
+        
+        if stderr:
+            if len(stderr) > 3000:
+                stderr = stderr[:3000] + "\n... (تم تقصير الأخطاء)"
+            result_text += f"❌ **الأخطاء:**\n```\n{stderr}\n```\n"
+        
+        result_text += f"\n📊 **كود الخروج:** {process.returncode}"
+        
+        if len(result_text) > 4000:
+            parts = [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]
+            for part in parts:
+                await update.message.reply_text(part, parse_mode='HTML')
+        else:
+            await update.message.reply_text(result_text, parse_mode='HTML')
+            
+    except subprocess.TimeoutExpired:
+        await update.message.reply_text(f"⏰ انتهى الوقت المحدد للأمر: `{command}`")
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطأ في التنفيذ: {str(e)}")
+
+    # البقاء في وضع الأوامر
+    await update.message.reply_text(
+        "⌨️ **أدخل الأمر التالي أو اكتب 'إلغاء' للخروج:**\n\n"
+        "⚠️ **تحذير:** الأوامر تنفذ بكامل الصلاحيات!"
+    )
+
+
 async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance):
     """تثبيت المتطلبات حقيقياً مع إصلاح مشكلة المسار"""
     try:
@@ -1692,7 +2085,7 @@ async def auto_start_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ======= handlers المحادثة ======= #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة أمر /start"""
+    """معالجة أمر /start مع الإضافات الجديدة"""
     user_id = update.effective_user.id
 
     if user_id not in user_bots:
@@ -1720,6 +2113,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [KeyboardButton("📤 رفع ملف/مشروع"), KeyboardButton("🤖 إدارة البوتات")],
         [KeyboardButton("⚙️ الإعدادات العامة"), KeyboardButton("📊 إحصائيات النظام")],
         [KeyboardButton("🛠️ إدارة المكتبات"), KeyboardButton("❌ إيقاف الجميع")],
+        [KeyboardButton("🧹 تنظيف السجلات"), KeyboardButton("🖥️ وحدة التحكم")],  # الأزرار الجديدة
         [KeyboardButton("🆘 المساعدة المتقدمة"), KeyboardButton("🌐 استيراد من GitHub")],
         [KeyboardButton("📦 إدارة الحزم")]
     ]
@@ -1731,7 +2125,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔄 نظام إعادة تشغيل تلقائي ذكي\n"
         "📦 دعم مكتبات خاصة لكل بوت\n"
         "⚙️ إعدادات متقدمة وأدوات مراقبة\n"
-        "🌐 استيراد مباشر من GitHub\n\n"
+        "🌐 استيراد مباشر من GitHub\n"
+        "🧹 تنظيف السجلات تلقائياً\n"  # الإضافة الجديدة
+        "🖥️ تحكم كامل في الاستضافة\n\n"  # الإضافة الجديدة
         "اختر أحد الخيارات المتاحة:",
         reply_markup=reply_markup
     )
@@ -3013,6 +3409,22 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         await run_bot_handler(update, context, bot_name, False)
 
     # أزرار إدارة الملفات الجديدة
+    
+     elif data.startswith("clean_logs_"):
+        bot_name = data[11:]
+        await clean_bot_logs(update, context, bot_name)
+
+    elif data.startswith("log_stats_"):
+        bot_name = data[10:]
+        await show_logs_statistics(update, context, bot_name)
+
+    # أزرار وحدة التحكم
+    elif data.startswith("term_"):
+        await execute_terminal_command(update, context)
+
+    elif data.startswith("cmd_"):
+        await execute_terminal_command(update, context)
+        
     elif data.startswith("file_manager_"):
         bot_name = data[13:]
         await list_bot_files(update, context, bot_name)
@@ -3293,7 +3705,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض رسالة المساعدة"""
+    """عرض رسالة المساعدة المحدثة"""
     help_text = """
 🆘 **المساعدة المتقدمة - بوت إدارة البوتات**
 
@@ -3305,6 +3717,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📊 **إحصائيات النظام** - عرض إحصائيات أداء النظام
 🛠️ **إدارة المكتبات** - إدارة مكتبات ومتطلبات البوتات
 ❌ **إيقاف الجميع** - إوقف جميع البوتات النشطة
+🧹 **تنظيف السجلات** - مسح سجلات البوتات وحفظ نسخ احتياطية
+🖥️ **وحدة التحكم** - التحكم الكامل في الاستضافة عبر الأوامر
 🌐 **استيراد من GitHub** - استيراد مشاريع مباشرة من GitHub
 📦 **إدارة الحزم** - إدارة حزم ومكتبات النظام
 
@@ -3315,14 +3729,21 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - إدارة المتطلبات التلقائية
 - مراقبة الأداء
 - سجلات مفصلة
-- نظام حماية متقدم ضد الملفات الضارة
+- نظام حماية متقدم
+- 🆕 تنظيف السجلات التلقائي
+- 🆕 تحكم كامل في الاستضافة
 
-💡 **نصائح:**
-- تأكد من وجود ملف `requirements.txt` للمشاريع الكبيرة
-- استخدم البيئات الافتراضية لعزل المكتبات
-- راقب استخدام الذاكرة والمسؤولية
-- احفظ نسخ احتياطية من الإعدادات المهمة
-- تفعيل الحماية لمنع رفع الملفات الضارة
+💡 **أوامر وحدة التحكم:**
+• `/terminal` - فتح وحدة التحكم
+• `ls, cd, pwd` - التنقل بين الملفات
+• `python, pip` - إدارة بايثون
+• `top, ps, df` - مراقبة النظام
+• أوامر مخصصة بأي لغة
+
+⚠️ **تحذيرات الأمان:**
+- وحدة التحكم تنفذ الأوامر بكامل الصلاحيات
+- استخدمها بحذر شديد
+- احتفظ بنسخ احتياطية من الملفات المهمة
 
 📞 **للدعم الفني:**
 @taha_khoja
@@ -3918,6 +4339,12 @@ def main():
         application.add_handler(CallbackQueryHandler(handle_button_callback))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_env_input))
         application.add_handler(CommandHandler("fix_req", fix_requirements_now))
+        application.add_handler(CommandHandler("terminal", terminal_control))
+        application.add_handler(CommandHandler("clean_logs", clean_all_logs))
+        application.add_handler(MessageHandler(filters.Regex("^(🧹 تنظيف السجلات)$"), clean_all_logs))
+        application.add_handler(MessageHandler(filters.Regex("^(🖥️ وحدة التحكم)$"), terminal_control))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_command))
+
 
 
 
