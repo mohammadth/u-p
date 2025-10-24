@@ -714,32 +714,61 @@ def monitor_bot(user_id, bot_name, chat_id, bot_instance):
 load_data()
 
 def extract_archive(file_path, extract_to):
-    """فك ضغط الملفات المضغوطة"""
+    """فك ضغط الملفات المضغوطة بشكل كامل"""
     try:
+        # التأكد من وجود مجلد الاستخراج
+        os.makedirs(extract_to, exist_ok=True)
+        
         if file_path.endswith('.zip'):
             with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                # استخراج جميع الملفات
                 zip_ref.extractall(extract_to)
+                # الحصول على قائمة الملفات المستخرجة
+                extracted_files = zip_ref.namelist()
+                logger.info(f"تم استخراج {len(extracted_files)} ملف من الأرشيف ZIP")
+                return True, extracted_files
+                
         elif file_path.endswith('.tar.gz') or file_path.endswith('.tgz'):
             with tarfile.open(file_path, 'r:gz') as tar_ref:
                 tar_ref.extractall(extract_to)
+                extracted_files = tar_ref.getnames()
+                logger.info(f"تم استخراج {len(extracted_files)} ملف من الأرشيف TAR.GZ")
+                return True, extracted_files
+                
         elif file_path.endswith('.tar'):
             with tarfile.open(file_path, 'r:') as tar_ref:
                 tar_ref.extractall(extract_to)
-        return True
+                extracted_files = tar_ref.getnames()
+                logger.info(f"تم استخراج {len(extracted_files)} ملف من الأرشيف TAR")
+                return True, extracted_files
+                
+        else:
+            logger.error(f"نوع الأرشيف غير مدعوم: {file_path}")
+            return False, []
+            
     except Exception as e:
         logger.error(f"فشل فك الضغط: {e}")
-        return False
+        return False, []
+
 
 def get_python_files(directory):
-    """الحصول على جميع ملفات البايثون في المجلد"""
+    """الحصول على جميع ملفات البايثون في المجلد مع معلومات مفصلة"""
     python_files = []
     try:
-        for root, _, files in os.walk(directory):
+        for root, dirs, files in os.walk(directory):
             for file in files:
                 if file.endswith('.py'):
-                    python_files.append(os.path.join(root, file))
+                    full_path = os.path.join(root, file)
+                    python_files.append(full_path)
+                    
+        # تسجيل معلومات الملفات
+        logger.info(f"تم العثور على {len(python_files)} ملف بايثون في {directory}")
+        for py_file in python_files[:5]:  # تسجيل أول 5 ملفات فقط
+            logger.info(f"ملف بايثون: {py_file}")
+            
     except Exception as e:
         logger.error(f"فشل البحث عن ملفات بايثون: {e}")
+    
     return python_files
 
 # ======= نظام تثبيت المتطلبات المحسّن النهائي ======= #
@@ -894,6 +923,56 @@ Werkzeug"""
         except:
             pass
         return False, error_msg
+
+
+async def show_all_extracted_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض جميع الملفات المستخرجة"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    
+    if user_id not in user_sessions or 'extracted_files' not in user_sessions[user_id]:
+        await query.edit_message_text("❌ لا توجد ملفات مستخرجة لعرضها")
+        return FILE_SELECTION
+
+    extracted_files = user_sessions[user_id]['extracted_files']
+    python_files = user_sessions[user_id]['python_files']
+
+    # تقسيم القائمة إذا كانت طويلة
+    files_text = "📁 **جميع الملفات المستخرجة:**\n\n"
+    
+    for i, file_path in enumerate(extracted_files[:50]):  # عرض أول 50 ملف فقط
+        icon = "🐍" if any(file_path.endswith(py_file) for py_file in [f.endswith('.py') for f in python_files]) else "📄"
+        files_text += f"{icon} {file_path}\n"
+
+    if len(extracted_files) > 50:
+        files_text += f"\n... و {len(extracted_files) - 50} ملفات أخرى"
+
+    files_text += f"\n\n🐍 **ملفات بايثون ({len(python_files)}):**\n"
+    for py_file in python_files:
+        rel_path = os.path.relpath(py_file, user_sessions[user_id]['temp_dir'])
+        files_text += f"• {rel_path}\n"
+
+    await query.edit_message_text(files_text)
+
+    # إعادة عرض لوحة الاختيار
+    keyboard = []
+    for i, file_path in enumerate(python_files):
+        file_name = os.path.basename(file_path)
+        rel_path = os.path.relpath(file_path, user_sessions[user_id]['temp_dir'])
+        keyboard.append([InlineKeyboardButton(f"🐍 {file_name} ({rel_path})", callback_data=f"select_file_{i}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_to_selection")])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await context.bot.send_message(
+        query.message.chat_id,
+        "اختر الملف الرئيسي لتشغيله:",
+        reply_markup=reply_markup
+    )
+
+
 
 async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """معالجة تثبيت متطلبات البوت - الإصدار المصحح"""
@@ -1451,7 +1530,7 @@ async def handle_github_import(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
 async def handle_zip_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة رفع الملفات المضغوطة"""
+    """معالجة رفع الملفات المضغوطة مع استخراج كامل"""
     user_id = update.effective_user.id
 
     if not update.message.document:
@@ -1472,6 +1551,7 @@ async def handle_zip_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = os.path.join(temp_dir, document.file_name)
         await file.download_to_drive(file_path)
 
+        # فحص الأمان
         if protection_enabled and not is_admin(user_id):
             is_malicious, activity, threat_type = scan_zip_for_malicious_code(file_path, user_id)
             if is_malicious:
@@ -1479,43 +1559,69 @@ async def handle_zip_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_text("⛔ تم رفض ملفك لأنه مشفر.")
                 else:
                     await update.message.reply_text("⛔ تم رفض ملفك لأنه يحتوي على ثغرات أمنية.")
+                shutil.rmtree(temp_dir, ignore_errors=True)
                 return ZIP_UPLOAD
 
-        if not extract_archive(file_path, temp_dir):
+        # فك الضغط
+        success, extracted_files = extract_archive(file_path, temp_dir)
+        if not success:
             await update.message.reply_text("❌ فشل في فك ضغط الملف. قد يكون الملف تالفاً.")
             shutil.rmtree(temp_dir, ignore_errors=True)
             return ZIP_UPLOAD
 
+        # إرسال تقرير بالملفات المستخرجة
+        if extracted_files:
+            files_list = "\n".join([f"📄 {file}" for file in extracted_files[:10]])  # عرض أول 10 ملفات فقط
+            if len(extracted_files) > 10:
+                files_list += f"\n... و {len(extracted_files) - 10} ملفات أخرى"
+            
+            await update.message.reply_text(
+                f"✅ تم فك الضغط بنجاح!\n"
+                f"📊 تم استخراج {len(extracted_files)} ملف\n\n"
+                f"الملفات المستخرجة:\n{files_list}"
+            )
+
+        # البحث عن ملفات بايثون
         python_files = get_python_files(temp_dir)
 
         if not python_files:
-            await update.message.reply_text("❌ لم يتم العثور على أي ملفات بايثون في الأرشيف.")
+            await update.message.reply_text(
+                "❌ لم يتم العثور على أي ملفات بايثون في الأرشيف.\n"
+                "الملفات المستخرجة:\n" + "\n".join(extracted_files[:20])
+            )
             shutil.rmtree(temp_dir, ignore_errors=True)
-            return ConversationHandler.END
+            return ZIP_UPLOAD
 
         if user_id not in user_sessions:
             user_sessions[user_id] = {}
 
         user_sessions[user_id]['temp_dir'] = temp_dir
         user_sessions[user_id]['python_files'] = python_files
+        user_sessions[user_id]['extracted_files'] = extracted_files
 
+        # عرض خيارات الملفات
         keyboard = []
         for i, file_path in enumerate(python_files):
             file_name = os.path.basename(file_path)
             rel_path = os.path.relpath(file_path, temp_dir)
-            keyboard.append([InlineKeyboardButton(f"{file_name} ({rel_path})", callback_data=f"select_file_{i}")])
+            keyboard.append([InlineKeyboardButton(f"🐍 {file_name} ({rel_path})", callback_data=f"select_file_{i}")])
 
+        # إضافة خيار لعرض جميع الملفات
+        keyboard.append([InlineKeyboardButton("📁 عرض جميع الملفات المستخرجة", callback_data="show_all_files")])
         keyboard.append([InlineKeyboardButton("❌ إلغاء", callback_data="cancel_selection")])
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            "✅ تم فك الضغط بنجاح. اختر الملف الرئيسي لتشغيله:",
+            f"✅ تم فك الضغط بنجاح!\n"
+            f"📊 تم العثور على {len(python_files)} ملف بايثون\n\n"
+            "اختر الملف الرئيسي لتشغيله:",
             reply_markup=reply_markup
         )
         return FILE_SELECTION
 
     except Exception as e:
         error_msg = str(e)
+        logger.error(f"خطأ في معالجة الملف المضغوط: {error_msg}")
         await update.message.reply_text(f"❌ حدث خطأ أثناء معالجة الملف: {error_msg}")
         if 'temp_dir' in locals():
             shutil.rmtree(temp_dir, ignore_errors=True)
