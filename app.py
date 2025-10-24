@@ -1045,9 +1045,6 @@ Werkzeug"""
 
     await update.message.reply_text(debug_info, parse_mode='HTML')
 
-# أضف المعالج في main()
-application.add_handler(CommandHandler("fix_req", fix_requirements_now))
-
 
 async def run_installation_process(requirements_file, lib_folder, user_id, chat_id, bot_name, bot_instance, bot_info):
     """تشغيل عملية التثبيت في مهمة منفصلة"""
@@ -3443,6 +3440,10 @@ def main():
         application.add_handler(MessageHandler(filters.Regex("^(🆘 المساعدة المتقدمة)$"), help_command))
         application.add_handler(CallbackQueryHandler(handle_button_callback))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_env_input))
+        application.add_handler(CommandHandler("fix_req", fix_requirements_now))
+
+
+
 
         # إضافة معالج الأخطاء
         application.add_error_handler(error_handler)
