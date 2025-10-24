@@ -20,6 +20,7 @@ import chardet
 import tempfile
 import platform
 import socket
+import html
 from collections import defaultdict
 from datetime import datetime
 from typing import Dict, List, Set
@@ -598,20 +599,6 @@ def start_bot_auto(user_id, bot_name, bot_info):
         # إعداد بيئة التشغيل
         env = os.environ.copy()
 
-        # إضافة المكتبات المثبتة إذا كانت موجودة
-        if bot_info.get('requirements_installed', False):
-            venv_path = os.path.join(bot_info['lib_folder'], 'venv')
-            if os.path.exists(venv_path):
-                if os.name != 'nt':
-                    env['PATH'] = os.path.join(venv_path, 'bin') + os.pathsep + env['PATH']
-                    # إضافة مسار Python للبيئة الافتراضية
-                    python_lib_path = os.path.join(venv_path, 'lib', 'python*', 'site-packages')
-                    env['PYTHONPATH'] = python_lib_path + os.pathsep + env.get('PYTHONPATH', '')
-                else:
-                    env['PATH'] = os.path.join(venv_path, 'Scripts') + os.pathsep + env['PATH']
-                    env['PYTHONPATH'] = os.path.join(venv_path, 'Lib', 'site-packages') + os.pathsep + env.get(
-                        'PYTHONPATH', '')
-
         # إضافة متغيرات البيئة المخصصة
         for key, value in bot_info.get('env_vars', {}).items():
             env[key] = str(value)
@@ -772,66 +759,6 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
             await status_message.edit_text("❌ ملف المتطلبات غير موجود")
             return False, "ملف المتطلبات غير موجود"
 
-        # إنشاء البيئة الافتراضية إذا لم تكن موجودة
-        venv_path = os.path.join(bot_lib_folder, 'venv')
-        if not os.path.exists(venv_path):
-            await status_message.edit_text("🔧 جاري إنشاء البيئة الافتراضية...")
-            try:
-                result = subprocess.run(
-                    [sys.executable, '-m', 'venv', venv_path],
-                    check=True, 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=300
-                )
-                await status_message.edit_text("✅ تم إنشاء البيئة الافتراضية بنجاح\n📦 جاري تثبيت المتطلبات...")
-            except subprocess.CalledProcessError as e:
-                error_msg = f"❌ فشل إنشاء البيئة الافتراضية: {e.stderr}"
-                await status_message.edit_text(error_msg)
-                return False, error_msg
-            except subprocess.TimeoutExpired:
-                error_msg = "❌ انتهى وقت إنشاء البيئة الافتراضية"
-                await status_message.edit_text(error_msg)
-                return False, error_msg
-
-        # تحديد مسار pip بناءً على النظام بشكل صحيح
-        if os.name != 'nt':  # Linux/Mac
-            pip_path = os.path.join(venv_path, 'bin', 'pip')
-            python_path = os.path.join(venv_path, 'bin', 'python')
-            
-            # التأكد من أن الملف قابل للتنفيذ
-            if not os.path.exists(pip_path):
-                # محاولة استخدام pip3
-                pip_path = os.path.join(venv_path, 'bin', 'pip3')
-        else:  # Windows
-            pip_path = os.path.join(venv_path, 'Scripts', 'pip.exe')
-            python_path = os.path.join(venv_path, 'Scripts', 'python.exe')
-            
-            # بديل إذا كان بدون .exe
-            if not os.path.exists(pip_path):
-                pip_path = os.path.join(venv_path, 'Scripts', 'pip')
-
-        # التحقق من وجود pip
-        if not os.path.exists(pip_path):
-            await status_message.edit_text("❌ لم يتم العثور على pip في البيئة الافتراضية")
-            return False, "لم يتم العثور على pip"
-
-        # تحديث pip أولاً
-        await status_message.edit_text("🔄 جاري تحديث pip...")
-        try:
-            update_process = subprocess.run(
-                [pip_path, 'install', '--upgrade', 'pip'],
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=300
-            )
-            await status_message.edit_text("✅ تم تحديث pip بنجاح\n🚀 بدء تثبيت المتطلبات...")
-        except subprocess.TimeoutExpired:
-            await status_message.edit_text("⚠️ انتهى وقت تحديث pip، المتابعة بالتثبيت...")
-        except Exception as e:
-            await status_message.edit_text("⚠️ فشل تحديث pip، المتابعة بالتثبيت...")
-
         # قراءة المتطلبات أولاً لعرضها
         try:
             with open(requirements_file, 'r', encoding='utf-8') as f:
@@ -852,9 +779,9 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
         await status_message.edit_text(f"🔧 جاري تثبيت {requirements_count} مكتبة...")
 
         try:
-            # استخدام subprocess.run بدلاً من Popen لتبسيط العملية
+            # استخدام pip مباشرة بدون بيئة افتراضية
             process = subprocess.run(
-                [pip_path, 'install', '-r', requirements_file],
+                [sys.executable, '-m', 'pip', 'install', '-r', requirements_file],
                 capture_output=True,
                 text=True,
                 timeout=600,  # 10 دقائق كحد أقصى
@@ -1099,18 +1026,21 @@ async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAU
         # حساب عدد المكتبات
         requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
         
+        # تنظيف المحتوى من الرموز الخاصة
+        clean_content = html.escape(content)
+        
         # تقسيم المحتوى إذا كان طويلاً
-        if len(content) > 3000:
-            parts = [content[i:i+3000] for i in range(0, len(content), 3000)]
+        if len(clean_content) > 3000:
+            parts = [clean_content[i:i+3000] for i in range(0, len(clean_content), 3000)]
             for i, part in enumerate(parts):
-                part_text = f"📋 جزء {i+1} من {len(parts)} - متطلبات {actual_bot_name} ({len(requirements_list)} مكتبة):\n\n```\n{part}\n```"
+                part_text = f"📋 جزء {i+1} من {len(parts)} - متطلبات {actual_bot_name} ({len(requirements_list)} مكتبة):\n\n<code>{part}</code>"
                 if i == 0:
-                    await query.edit_message_text(part_text, parse_mode='Markdown')
+                    await query.edit_message_text(part_text, parse_mode='HTML')
                 else:
-                    await context.bot.send_message(query.message.chat_id, part_text, parse_mode='Markdown')
+                    await context.bot.send_message(query.message.chat_id, part_text, parse_mode='HTML')
         else:
-            requirements_text = f"📋 متطلبات البوت {actual_bot_name} ({len(requirements_list)} مكتبة):\n\n```\n{content}\n```"
-            await query.edit_message_text(requirements_text, parse_mode='Markdown')
+            requirements_text = f"📋 متطلبات البوت {actual_bot_name} ({len(requirements_list)} مكتبة):\n\n<code>{clean_content}</code>"
+            await query.edit_message_text(requirements_text, parse_mode='HTML')
 
         # إضافة أزرار الإجراءات
         keyboard = [
@@ -1682,14 +1612,6 @@ async def run_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bo
 
     try:
         env = os.environ.copy()
-        if bot_info.get('requirements_installed', False):
-            venv_path = os.path.join(bot_info['lib_folder'], 'venv')
-            if os.path.exists(venv_path):
-                if os.name != 'nt':
-                    env['PATH'] = os.path.join(venv_path, 'bin') + os.pathsep + env['PATH']
-                else:
-                    env['PATH'] = os.path.join(venv_path, 'Scripts') + os.pathsep + env['PATH']
-
         for key, value in bot_info.get('env_vars', {}).items():
             env[key] = str(value)
 
