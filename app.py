@@ -743,8 +743,8 @@ def get_python_files(directory):
     return python_files
 
 # ======= نظام تثبيت المتطلبات المحسّن النهائي ======= #
-async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance):
-    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي - الإصدار النهائي"""
+async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance, bot_info):
+    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي - الإصدار المعدل"""
     try:
         # إرسال رسالة بدء التثبيت
         status_message = await bot_instance.send_message(
@@ -752,25 +752,26 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
             f"📦 جاري تثبيت متطلبات البوت {bot_name}...\n⏳ قد تستغرق هذه العملية عدة دقائق"
         )
         
-        # التحقق من وجود ملف المتطلبات وإنشاؤه إذا لزم الأمر
+        # التحقق من وجود ملف المتطلبات وإنشاؤه من المحتوى المخزن إذا لزم الأمر
+        logger.info(f"🔍 البحث عن ملف المتطلبات في: {requirements_file}")
+        logger.info(f"📁 المجلد: {bot_lib_folder}")
+        logger.info(f"📁 وجود المجلد: {os.path.exists(bot_lib_folder)}")
+        
+        if not os.path.exists(bot_lib_folder):
+            logger.info(f"📁 إنشاء المجلد: {bot_lib_folder}")
+            os.makedirs(bot_lib_folder, exist_ok=True)
+        
         if not os.path.exists(requirements_file):
-            # إنشاء ملف متطلبات افتراضي للبوت app_608
-            if user_id == 7883114406 and "app_608" in bot_name:
-                requirements_content = """Flask[async]
-requests
-aiohttp
-googleapis-common-protos
-pycryptodome
-protobuf
-Werkzeug"""
-                
-                os.makedirs(os.path.dirname(requirements_file), exist_ok=True)
+            logger.warning(f"❌ ملف المتطلبات غير موجود: {requirements_file}")
+            # التحقق من وجود محتوى متطلبات مخزن في bot_info
+            if 'requirements_content' in bot_info and bot_info['requirements_content']:
+                logger.info(f"📝 إنشاء ملف المتطلبات من المحتوى المخزن للبوت {bot_name}")
                 with open(requirements_file, 'w', encoding='utf-8') as f:
-                    f.write(requirements_content)
-                await status_message.edit_text("✅ تم إنشاء ملف المتطلبات تلقائياً للبوت app_608")
+                    f.write(bot_info['requirements_content'])
+                await status_message.edit_text("✅ تم إنشاء ملف المتطلبات تلقائياً من المحتوى المخزن")
             else:
-                await status_message.edit_text("❌ ملف المتطلبات غير موجود")
-                return False, "ملف المتطلبات غير موجود"
+                await status_message.edit_text("❌ ملف المتطلبات غير موجود ولا يوجد محتوى مخزن")
+                return False, "ملف المتطلبات غير موجود ولا يوجد محتوى مخزن"
 
         # قراءة المتطلبات أولاً لعرضها
         try:
@@ -876,7 +877,7 @@ Werkzeug"""
         return False, error_msg
 
 async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """معالجة تثبيت متطلبات البوت مع التقدم المرئي - الإصدار النهائي"""
+    """معالجة تثبيت متطلبات البوت مع التقدم المرئي - الإصدار المعدل"""
     query = update.callback_query
 
     if query is None:
@@ -909,20 +910,34 @@ async def install_requirements_handler(update: Update, context: ContextTypes.DEF
         return CHOOSE_ACTION
 
     bot_info = user_bots[user_id]['bots'][actual_bot_name]
-    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+    
+    # التأكد من وجود مجلد المكتبات
+    lib_folder = bot_info.get('lib_folder', '')
+    if not lib_folder:
+        # إنشاء مسار افتراضي إذا لم يكن موجوداً
+        lib_folder = os.path.join(LIBRARY_FOLDER, f"{user_id}_{actual_bot_name}")
+        bot_info['lib_folder'] = lib_folder
+        save_data()
+    
+    # التأكد من وجود المجلد
+    if not os.path.exists(lib_folder):
+        os.makedirs(lib_folder, exist_ok=True)
+        logger.info(f"📁 تم إنشاء مجلد المكتبات: {lib_folder}")
+
+    requirements_file = os.path.join(lib_folder, 'requirements.txt')
 
     # بدء عملية التثبيت الحقيقية
     await query.edit_message_text(f"🚀 بدء عملية تثبيت المتطلبات للبوت {actual_bot_name}...")
 
     # استخدام asyncio.create_task للتشغيل غير المتزامن
     asyncio.create_task(
-        run_installation_process(requirements_file, bot_info['lib_folder'], user_id, chat_id, actual_bot_name, context.bot, bot_info)
+        run_installation_process(requirements_file, lib_folder, user_id, chat_id, actual_bot_name, context.bot, bot_info)
     )
 
     return CHOOSE_ACTION
 
 async def run_installation_process(requirements_file, lib_folder, user_id, chat_id, bot_name, bot_instance, bot_info):
-    """تشغيل عملية التثبيت في مهمة منفصلة"""
+    """تشغيل عملية التثبيت في مهمة منفصلة - الإصدار المعدل"""
     try:
         success, message = await install_requirements_real_time(
             requirements_file, 
@@ -930,7 +945,8 @@ async def run_installation_process(requirements_file, lib_folder, user_id, chat_
             user_id, 
             chat_id, 
             bot_name, 
-            bot_instance
+            bot_instance,
+            bot_info  # تمرير bot_info هنا
         )
         
         # تحديث حالة البوت بعد التثبيت
@@ -943,7 +959,7 @@ async def run_installation_process(requirements_file, lib_folder, user_id, chat_
         await bot_instance.send_message(chat_id, f"❌ فشل عملية التثبيت: {str(e)}")
 
 async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة رفع ملف المتطلبات - الإصدار النهائي"""
+    """معالجة رفع ملف المتطلبات - الإصدار المعدل"""
     user_id = update.effective_user.id
 
     if not update.message.document:
@@ -985,23 +1001,20 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
         file = await context.bot.get_file(document.file_id)
         await file.download_to_drive(requirements_file)
 
+        # قراءة محتوى الملف وحفظه في bot_info
+        with open(requirements_file, 'r', encoding='utf-8') as f:
+            requirements_content = f.read().strip()
+
         # التحقق من صحة الملف
-        try:
-            with open(requirements_file, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                requirements_list = [line for line in content.split('\n') if line.strip() and not line.startswith('#')]
-            
-            if not requirements_list:
-                await update.message.reply_text("⚠️ ملف المتطلبات فارغ أو لا يحتوي على مكتبات صالحة")
-                os.remove(requirements_file)
-                return REQUIREMENTS_SETUP
-                
-        except Exception as e:
-            await update.message.reply_text(f"❌ ملف المتطلبات غير صالح: {str(e)}")
-            if os.path.exists(requirements_file):
-                os.remove(requirements_file)
+        requirements_list = [line for line in requirements_content.split('\n') if line.strip() and not line.startswith('#')]
+        
+        if not requirements_list:
+            await update.message.reply_text("⚠️ ملف المتطلبات فارغ أو لا يحتوي على مكتبات صالحة")
+            os.remove(requirements_file)
             return REQUIREMENTS_SETUP
 
+        # حفظ محتوى المتطلبات في bot_info
+        bot_info['requirements_content'] = requirements_content
         bot_info['has_requirements'] = True
         bot_info['requirements_installed'] = False
         save_data()
@@ -2134,7 +2147,7 @@ async def handle_library_management(update: Update, context: ContextTypes.DEFAUL
     return LIBRARY_MANAGEMENT
 
 async def create_requirements_file(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """إنشاء ملف متطلبات تلقائياً"""
+    """إنشاء ملف متطلبات تلقائياً - الإصدار المعدل"""
     query = update.callback_query
 
     if query is None:
@@ -2179,6 +2192,8 @@ Werkzeug"""
         with open(requirements_file, 'w', encoding='utf-8') as f:
             f.write(requirements_content)
 
+        # حفظ محتوى المتطلبات في bot_info
+        bot_info['requirements_content'] = requirements_content
         bot_info['has_requirements'] = True
         bot_info['requirements_installed'] = False
         save_data()
@@ -2247,7 +2262,7 @@ async def remove_requirements_handler(update: Update, context: ContextTypes.DEFA
     await query.edit_message_text(f"✅ تم حذف ملف المتطلبات للبوت {actual_bot_name}")
 
 async def handle_requirements_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة إدخال المتطلبات"""
+    """معالجة إدخال المتطلبات - الإصدار المعدل"""
     user_id = update.effective_user.id
     message_text = update.message.text
 
@@ -2280,6 +2295,8 @@ async def handle_requirements_input(update: Update, context: ContextTypes.DEFAUL
         with open(requirements_file, 'w', encoding='utf-8') as f:
             f.write(message_text)
 
+        # حفظ محتوى المتطلبات في bot_info
+        bot_info['requirements_content'] = message_text
         bot_info['has_requirements'] = True
         bot_info['requirements_installed'] = False
         save_data()
