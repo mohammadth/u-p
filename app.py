@@ -3388,7 +3388,7 @@ async def handle_bot_management(update: Update, context: ContextTypes.DEFAULT_TY
     return BOT_MANAGEMENT
 
 async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة جميع الأزرار"""
+    """معالجة جميع الأزرار بما فيها الميزات الجديدة"""
     query = update.callback_query
 
     if query is None:
@@ -3408,45 +3408,6 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         bot_name = data[11:]
         await run_bot_handler(update, context, bot_name, False)
 
-    # أزرار إدارة الملفات الجديدة
-    
-     elif data.startswith("clean_logs_"):
-        bot_name = data[11:]
-        await clean_bot_logs(update, context, bot_name)
-
-    elif data.startswith("log_stats_"):
-        bot_name = data[10:]
-        await show_logs_statistics(update, context, bot_name)
-
-    # أزرار وحدة التحكم
-    elif data.startswith("term_"):
-        await execute_terminal_command(update, context)
-
-    elif data.startswith("cmd_"):
-        await execute_terminal_command(update, context)
-        
-    elif data.startswith("file_manager_"):
-        bot_name = data[13:]
-        await list_bot_files(update, context, bot_name)
-
-    elif data.startswith("download_file_"):
-        bot_name = data[14:]
-        await download_bot_file(update, context, bot_name)
-
-    elif data.startswith("delete_file_"):
-        bot_name = data[12:]
-        await delete_bot_file(update, context, bot_name)
-
-    elif data.startswith("show_all_files_"):
-        bot_name = data[15:]
-        await show_all_bot_files(update, context, bot_name)
-
-    elif data.startswith("dl_"):
-        await handle_file_download(update, context)
-
-    elif data.startswith("del_"):
-        await handle_file_delete(update, context)
-        
     elif data.startswith("run_restart_"):
         bot_name = data[12:]
         await run_bot_handler(update, context, bot_name, True)
@@ -3597,6 +3558,44 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
         bot_name = data[4:]
         context.user_data['current_bot'] = bot_name
         await handle_library_management(update, context)
+
+    elif data.startswith("file_manager_"):
+        bot_name = data[13:]
+        await list_bot_files(update, context, bot_name)
+
+    elif data.startswith("download_file_"):
+        bot_name = data[14:]
+        await download_bot_file(update, context, bot_name)
+
+    elif data.startswith("delete_file_"):
+        bot_name = data[12:]
+        await delete_bot_file(update, context, bot_name)
+
+    elif data.startswith("show_all_files_"):
+        bot_name = data[15:]
+        await show_all_bot_files(update, context, bot_name)
+
+    elif data.startswith("dl_"):
+        await handle_file_download(update, context)
+
+    elif data.startswith("del_"):
+        await handle_file_delete(update, context)
+
+    # أزرار تنظيف السجلات
+    elif data.startswith("clean_logs_"):
+        bot_name = data[11:]
+        await clean_bot_logs(update, context, bot_name)
+
+    elif data.startswith("log_stats_"):
+        bot_name = data[10:]
+        await show_logs_statistics(update, context, bot_name)
+
+    # أزرار وحدة التحكم
+    elif data.startswith("term_"):
+        await execute_terminal_command(update, context)
+
+    elif data.startswith("cmd_"):
+        await execute_terminal_command(update, context)
 
 async def handle_env_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال متغيرات البيئة"""
