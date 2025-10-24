@@ -775,6 +775,9 @@ def get_python_files(directory):
 
 
 # ======= دوال تنظيف السجلات ======= #
+# أضف هذا الكود في المكان المناسب بعد دوال إدارة الملفات
+
+# ======= دوال تنظيف السجلات ======= #
 async def clean_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """تنظيف سجلات البوت"""
     query = update.callback_query
