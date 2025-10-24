@@ -856,34 +856,42 @@ async def clean_all_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """تنظيف جميع سجلات البوتات"""
     user_id = update.effective_user.id
 
+    # السماح للأدمن فقط
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
+        return
+
     load_data()
 
-    if user_id not in user_bots or not user_bots[user_id]['bots']:
-        await update.message.reply_text("❌ ليس لديك أي بوتات حتى الآن.")
+    if not user_bots or all(not user_data['bots'] for user_data in user_bots.values()):
+        await update.message.reply_text("❌ لا توجد بوتات في النظام.")
         return
 
     cleaned_count = 0
-    total_bots = len(user_bots[user_id]['bots'])
+    total_bots = 0
 
-    for bot_name, bot_info in user_bots[user_id]['bots'].items():
-        log_file = bot_info['log_file']
-        
-        try:
-            if os.path.exists(log_file):
-                # حفظ نسخة احتياطية
-                backup_dir = os.path.join(LOG_FOLDER, 'backups')
-                os.makedirs(backup_dir, exist_ok=True)
-                backup_file = os.path.join(backup_dir, f"{bot_name}_{int(time.time())}.log")
-                shutil.copy2(log_file, backup_file)
-                
-                # مسح المحتوى
-                with open(log_file, 'w', encoding='utf-8') as f:
-                    f.write("")
-                
-                cleaned_count += 1
-                
-        except Exception as e:
-            logger.error(f"فشل تنظيف سجلات البوت {bot_name}: {e}")
+    for user_id, user_data in user_bots.items():
+        for bot_name, bot_info in user_data['bots'].items():
+            total_bots += 1
+            log_file = bot_info['log_file']
+            
+            try:
+                if os.path.exists(log_file):
+                    # حفظ نسخة احتياطية
+                    backup_dir = os.path.join(LOG_FOLDER, 'backups')
+                    os.makedirs(backup_dir, exist_ok=True)
+                    backup_file = os.path.join(backup_dir, f"{user_id}_{bot_name}_{int(time.time())}.log")
+                    shutil.copy2(log_file, backup_file)
+                    
+                    # مسح المحتوى
+                    with open(log_file, 'w', encoding='utf-8') as f:
+                        f.write("")
+                    
+                    cleaned_count += 1
+                    logger.info(f"تم تنظيف سجلات البوت {bot_name} للمستخدم {user_id}")
+                    
+            except Exception as e:
+                logger.error(f"فشل تنظيف سجلات البوت {bot_name}: {e}")
 
     await update.message.reply_text(f"✅ تم تنظيف سجلات {cleaned_count} من أصل {total_bots} بوت")
 
@@ -960,7 +968,7 @@ async def terminal_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """فتح واجهة التحكم في الاستضافة"""
     user_id = update.effective_user.id
     
-    # التحقق من صلاحية المستخدم (يمكنك تعديل هذا حسب احتياجك)
+    # السماح للأدمن فقط
     if user_id != ADMIN_ID:
         await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
         return
@@ -971,6 +979,7 @@ async def terminal_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🐍 إدارة بايثون", callback_data="term_python")],
         [InlineKeyboardButton("📦 إدارة الحزم", callback_data="term_packages")],
         [InlineKeyboardButton("🔧 أوامر مخصصة", callback_data="term_custom")],
+        [InlineKeyboardButton("🧹 تنظيف السجلات", callback_data="term_clean_logs")],
         [InlineKeyboardButton("❌ إغلاق", callback_data="term_close")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1001,7 +1010,10 @@ async def execute_terminal_command(update: Update, context: ContextTypes.DEFAULT
         await execute_command_and_send(update, context, "ls -la", "📁 عرض الملفات")
 
     elif data == "term_status":
-        await execute_command_and_send(update, context, "top -bn1 | head -20", "📊 حالة النظام")
+        # أمر أكثر أماناً لعرض حالة النظام
+        await execute_command_and_send(update, context, 
+                                     "echo '=== الذاكرة ===' && free -h && echo '' && echo '=== التخزين ===' && df -h && echo '' && echo '=== المعالج ===' && uptime", 
+                                     "📊 حالة النظام")
 
     elif data == "term_python":
         keyboard = [
@@ -1016,8 +1028,8 @@ async def execute_terminal_command(update: Update, context: ContextTypes.DEFAULT
     elif data == "term_packages":
         keyboard = [
             [InlineKeyboardButton("📦 تحديث pip", callback_data="cmd_pip_upgrade")],
-            [InlineKeyboardButton("🔍 البحث عن حزمة", callback_data="cmd_search_package")],
             [InlineKeyboardButton("📊 حجم الحزم", callback_data="cmd_pip_size")],
+            [InlineKeyboardButton("🔍 حزم مثبتة", callback_data="cmd_pip_list")],
             [InlineKeyboardButton("🔙 رجوع", callback_data="term_back")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1027,13 +1039,19 @@ async def execute_terminal_command(update: Update, context: ContextTypes.DEFAULT
         context.user_data['waiting_for_command'] = True
         await query.edit_message_text(
             "⌨️ **أدخل الأمر الذي تريد تنفيذه:**\n\n"
-            "مثال:\n"
+            "أمثلة:\n"
             "• `pwd` - المسار الحالي\n"
+            "• `ls -la` - عرض الملفات\n" 
             "• `df -h` - مساحة التخزين\n"
             "• `free -h` - الذاكرة\n"
-            "• `ps aux | grep python` - العمليات\n\n"
-            "⚠️ **تحذير:** الأوامر تنفذ بكامل الصلاحيات!"
+            "• `ps aux` - العمليات النشطة\n"
+            "• `python --version` - إصدار بايثون\n\n"
+            "⚠️ **تحذير:** الأوامر تنفذ بكامل الصلاحيات!\n"
+            "اكتب 'إلغاء' للخروج من وضع الأوامر."
         )
+
+    elif data == "term_clean_logs":
+        await clean_all_logs(update, context)
 
     elif data == "term_close":
         await query.edit_message_text("✅ تم إغلاق وحدة التحكم")
@@ -1043,10 +1061,10 @@ async def execute_terminal_command(update: Update, context: ContextTypes.DEFAULT
 
     # الأوامر الفرعية
     elif data == "cmd_python_version":
-        await execute_command_and_send(update, context, "python --version", "🐍 إصدار بايثون")
+        await execute_command_and_send(update, context, "python --version && echo '' && python3 --version", "🐍 إصدار بايثون")
 
     elif data == "cmd_pip_list":
-        await execute_command_and_send(update, context, "pip list", "📦 قائمة الحزم")
+        await execute_command_and_send(update, context, "pip list --format=columns", "📦 قائمة الحزم")
 
     elif data == "cmd_system_info":
         await execute_command_and_send(update, context, "uname -a", "🔍 معلومات النظام")
@@ -1055,7 +1073,7 @@ async def execute_terminal_command(update: Update, context: ContextTypes.DEFAULT
         await execute_command_and_send(update, context, "python -m pip install --upgrade pip", "📦 تحديث pip")
 
     elif data == "cmd_pip_size":
-        await execute_command_and_send(update, context, "pip list --format=freeze | wc -l", "📊 عدد الحزم")
+        await execute_command_and_send(update, context, "echo 'عدد الحزم:' && pip list --format=freeze | wc -l", "📊 عدد الحزم")
 
 async def execute_command_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str, title: str):
     """تنفيذ أمر وإرسال النتيجة"""
@@ -1070,7 +1088,8 @@ async def execute_command_and_send(update: Update, context: ContextTypes.DEFAULT
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            cwd=os.getcwd()
         )
         
         stdout, stderr = process.communicate(timeout=30)
@@ -1079,10 +1098,12 @@ async def execute_command_and_send(update: Update, context: ContextTypes.DEFAULT
         result_text += f"```bash\n$ {command}\n```\n\n"
         
         if stdout:
-            result_text += f"📤 **الإخراج:**\n```\n{stdout}\n```\n"
+            clean_stdout = html.escape(stdout)
+            result_text += f"📤 **الإخراج:**\n```\n{clean_stdout}\n```\n"
         
         if stderr:
-            result_text += f"❌ **الأخطاء:**\n```\n{stderr}\n```\n"
+            clean_stderr = html.escape(stderr)
+            result_text += f"❌ **الأخطاء:**\n```\n{clean_stderr}\n```\n"
         
         result_text += f"\n📊 **كود الخروج:** {process.returncode}"
         
@@ -1108,14 +1129,14 @@ async def handle_custom_command(update: Update, context: ContextTypes.DEFAULT_TY
     
     if user_id != ADMIN_ID:
         await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
-        return
-
-    if not context.user_data.get('waiting_for_command'):
+        context.user_data['waiting_for_command'] = False
         return
 
     command = update.message.text.strip()
     
-    if command.lower() in ['exit', 'quit', 'cancel', 'إلغاء']:
+    # الأوامر الخاصة للخروج من وضع الأوامر
+    exit_commands = ['exit', 'quit', 'cancel', 'إلغاء', 'خروج']
+    if command.lower() in exit_commands:
         context.user_data['waiting_for_command'] = False
         await update.message.reply_text("✅ تم إلغاء وضع الأوامر")
         return
@@ -1129,26 +1150,30 @@ async def handle_custom_command(update: Update, context: ContextTypes.DEFAULT_TY
             shell=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True
+            text=True,
+            cwd=os.getcwd()  # التنفيذ من المجلد الحالي
         )
         
-        stdout, stderr = process.communicate(timeout=60)  # وقت أطول للأوامر المخصصة
+        stdout, stderr = process.communicate(timeout=60)
         
         result_text = f"🎯 **نتيجة الأمر:** `{command}`\n\n"
         
         if stdout:
-            # تقصير الإخراج الطويل
-            if len(stdout) > 3000:
-                stdout = stdout[:3000] + "\n... (تم تقصير الإخراج)"
-            result_text += f"📤 **الإخراج:**\n```\n{stdout}\n```\n"
+            # تنظيف الإخراج من الرموز الخاصة
+            clean_stdout = html.escape(stdout)
+            if len(clean_stdout) > 3000:
+                clean_stdout = clean_stdout[:3000] + "\n... (تم تقصير الإخراج)"
+            result_text += f"📤 **الإخراج:**\n```\n{clean_stdout}\n```\n"
         
         if stderr:
-            if len(stderr) > 3000:
-                stderr = stderr[:3000] + "\n... (تم تقصير الأخطاء)"
-            result_text += f"❌ **الأخطاء:**\n```\n{stderr}\n```\n"
+            clean_stderr = html.escape(stderr)
+            if len(clean_stderr) > 3000:
+                clean_stderr = clean_stderr[:3000] + "\n... (تم تقصير الأخطاء)"
+            result_text += f"❌ **الأخطاء:**\n```\n{clean_stderr}\n```\n"
         
         result_text += f"\n📊 **كود الخروج:** {process.returncode}"
         
+        # إرسال النتيجة
         if len(result_text) > 4000:
             parts = [result_text[i:i+4000] for i in range(0, len(result_text), 4000)]
             for part in parts:
@@ -2809,25 +2834,157 @@ async def delete_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await query.edit_message_text(f"✅ تم حذف البوت {actual_bot_name} وجميع ملفاته بنجاح")
 
 def clean_log_content(text):
-    """تنظيف المحتوى من الرموز الخاصة"""
+    """تنظيف المحتوى من الرموز الخاصة بشكل متقدم"""
+    if not text:
+        return ""
+    
+    # استبدال الرموز الخاصة
     replacements = {
         '<': '⟨',
-        '>': '⟩',
+        '>': '⟩', 
         '&': '＆',
-        '^': '↑',
         '`': '´',
         '*': '∗',
         '_': '‗',
         '~': '∼',
+        '^': '↑',
+        '\\': '⧵',
+        '|': '∣',
     }
 
+    cleaned_text = text
     for old_char, new_char in replacements.items():
-        text = text.replace(old_char, new_char)
+        cleaned_text = cleaned_text.replace(old_char, new_char)
+    
+    # إزالة الرموز غير القابلة للطباعة
+    cleaned_text = ''.join(char for char in cleaned_text if char in string.printable or char.isspace())
+    
+    return cleaned_text
 
-    return text
+async def show_logs_by_time(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str, hours: int = 24):
+    """عرض سجلات البوت لفترة زمنية محددة"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+
+    if not os.path.exists(bot_info['log_file']):
+        await query.edit_message_text("📝 لا توجد سجلات للبوت حتى الآن.")
+        return
+
+    try:
+        with open(bot_info['log_file'], 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        if not lines:
+            await query.edit_message_text("📝 السجلات فارغة.")
+            return
+
+        # تصفية السجلات حسب الوقت (إذا كان هناك طابع زمني)
+        filtered_lines = []
+        cutoff_time = datetime.now() - timedelta(hours=hours)
+        
+        for line in lines:
+            # محاولة استخراج الوقت من السطر
+            line_time = extract_time_from_log(line)
+            if line_time and line_time >= cutoff_time:
+                filtered_lines.append(line)
+            elif not line_time:  # إذا لم يتمكن من استخراج الوقت، أضف السطر
+                filtered_lines.append(line)
+
+        all_logs = ''.join(filtered_lines)
+        
+        if not all_logs.strip():
+            await query.edit_message_text(f"📝 لا توجد سجلات في آخر {hours} ساعة.")
+            return
+
+        clean_logs = clean_log_content(all_logs)
+
+        # إرسال السجلات المصفاة
+        time_message = f"📋 **سجلات البوت: {actual_bot_name} (آخر {hours} ساعة)**\n\n"
+        time_message += f"📊 عدد الأسطر: {len(filtered_lines)}\n"
+        time_message += f"📝 الأحرف: {len(clean_logs)}\n\n"
+        
+        await query.edit_message_text(time_message)
+
+        # تقسيم وإرسال السجلات
+        if len(clean_logs) > 4000:
+            total_parts = (len(clean_logs) + 3999) // 4000
+            
+            for part_num in range(total_parts):
+                start_index = part_num * 4000
+                end_index = start_index + 4000
+                log_part = clean_logs[start_index:end_index]
+                
+                part_message = f"📄 **الجزء {part_num + 1} من {total_parts}**\n\n"
+                part_message += f"```\n{log_part}\n```"
+                
+                await context.bot.send_message(
+                    query.message.chat_id,
+                    part_message,
+                    parse_mode='HTML'
+                )
+                
+                if part_num < total_parts - 1:
+                    await asyncio.sleep(0.5)
+        else:
+            log_message = f"```\n{clean_logs}\n```"
+            await context.bot.send_message(
+                query.message.chat_id,
+                log_message,
+                parse_mode='HTML'
+            )
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
+
+def extract_time_from_log(log_line):
+    """استخراج الوقت من سطر السجل"""
+    try:
+        # أنماط مختلفة للطابع الزمني
+        patterns = [
+            r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',
+            r'(\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2})',
+            r'(\d{2}:\d{2}:\d{2})',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, log_line)
+            if match:
+                time_str = match.group(1)
+                try:
+                    if len(time_str) > 8:  # تاريخ كامل
+                        return datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S')
+                    else:  # وقت فقط
+                        today = datetime.now().date()
+                        time_obj = datetime.strptime(time_str, '%H:%M:%S').time()
+                        return datetime.combine(today, time_obj)
+                except ValueError:
+                    continue
+        return None
+    except:
+        return None
 
 async def show_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """عرض سجلات البوت"""
+    """عرض سجلات البوت كاملة مع تقسيم للرسائل الطويلة"""
     query = update.callback_query
 
     if query is None:
@@ -2866,23 +3023,81 @@ async def show_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_
 
     try:
         with open(bot_info['log_file'], 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            last_lines = lines[-20:] if len(lines) > 20 else lines
+            all_logs = f.read().strip()
 
-        log_content = ''.join(last_lines).strip()
-
-        if not log_content:
+        if not all_logs:
             await query.edit_message_text("📝 السجلات فارغة.")
             return
 
-        if len(log_content) > 4000:
-            log_content = log_content[-4000:]
+        # تنظيف المحتوى من الرموز الخاصة
+        clean_logs = clean_log_content(all_logs)
 
-        clean_log = clean_log_content(log_content)
-        await query.edit_message_text(f"📋 آخر سجلات البوت {actual_bot_name}:\n\n{clean_log}")
+        # إرسال رسالة بداية السجلات
+        start_message = f"📋 **سجلات البوت: {actual_bot_name}**\n\n"
+        start_message += f"📊 إجمالي الأحرف: {len(clean_logs)}\n"
+        start_message += f"📝 حالة البوت: {'🟢 يعمل' if bot_info['status'] == 'running' else '🔴 متوقف'}\n\n"
+        
+        await query.edit_message_text(start_message)
+
+        # تقسيم السجلات إلى أجزاء إذا كانت طويلة
+        if len(clean_logs) > 4000:
+            # حساب عدد الأجزاء
+            total_parts = (len(clean_logs) + 3999) // 4000
+            
+            for part_num in range(total_parts):
+                start_index = part_num * 4000
+                end_index = start_index + 4000
+                log_part = clean_logs[start_index:end_index]
+                
+                part_message = f"📄 **الجزء {part_num + 1} من {total_parts}**\n\n"
+                part_message += f"```\n{log_part}\n```"
+                
+                await context.bot.send_message(
+                    query.message.chat_id,
+                    part_message,
+                    parse_mode='HTML'
+                )
+                
+                # تأخير بسيط بين الرسائل لتجنب حظر التليجرام
+                if part_num < total_parts - 1:
+                    await asyncio.sleep(0.5)
+                    
+            # إرسال رسالة الخلاصة
+            summary = f"✅ **تم إرسال جميع السجلات**\n\n"
+            summary += f"• البوت: {actual_bot_name}\n"
+            summary += f"• عدد الأجزاء: {total_parts}\n"
+            summary += f"• إجمالي الأحرف: {len(clean_logs)}\n"
+            summary += f"• آخر تحديث: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+        else:
+            # إذا كانت السجلات قصيرة، إرسالها كاملة
+            log_message = f"📋 **سجلات البوت: {actual_bot_name}**\n\n"
+            log_message += f"```\n{clean_logs}\n```"
+            
+            await context.bot.send_message(
+                query.message.chat_id,
+                log_message,
+                parse_mode='HTML'
+            )
+
+        # إضافة أزرار التحكم بعد إرسال السجلات
+        keyboard = [
+            [InlineKeyboardButton("🔄 تحديث السجلات", callback_data=f"logs_{actual_bot_name}")],
+            [InlineKeyboardButton("🧹 تنظيف السجلات", callback_data=f"clean_logs_{actual_bot_name}")],
+            [InlineKeyboardButton("📊 إحصائيات السجلات", callback_data=f"log_stats_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"manage_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await context.bot.send_message(
+            query.message.chat_id,
+            "اختر الإجراء التالي:",
+            reply_markup=reply_markup
+        )
 
     except Exception as e:
-        await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة السجلات: {str(e)}")
+        error_msg = f"❌ حدث خطأ أثناء قراءة السجلات: {str(e)}"
+        await query.edit_message_text(error_msg)
 
 async def show_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """عرض إعدادات البوت"""
@@ -3293,7 +3508,7 @@ async def handle_requirements_input(update: Update, context: ContextTypes.DEFAUL
     return ConversationHandler.END
 
 async def show_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """عرض إدارة البوتات للمستخدم"""
+    """عرض إدارة البوتات مع خيارات السجلات المتقدمة"""
     user_id = update.effective_user.id
 
     load_data()
@@ -3305,21 +3520,101 @@ async def show_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard = []
     for bot_name, bot_info in user_bots[user_id]['bots'].items():
         status = "🟢" if bot_info['status'] == 'running' else "🔴"
+        
+        # زر رئيسي للبوت
         keyboard.append([InlineKeyboardButton(f"{status} {bot_name}", callback_data=f"manage_{bot_name}")])
+        
+        # أزرار سريعة للسجلات
+        log_buttons = [
+            InlineKeyboardButton("📋 كل السجلات", callback_data=f"logs_full_{bot_name}"),
+            InlineKeyboardButton("📅 سجلات اليوم", callback_data=f"logs_today_{bot_name}"),
+            InlineKeyboardButton("⏰ آخر ساعة", callback_data=f"logs_hour_{bot_name}")
+        ]
+        keyboard.append(log_buttons)
 
     keyboard.append([InlineKeyboardButton("➕ إضافة بوت جديد", callback_data="add_new_bot")])
+    keyboard.append([InlineKeyboardButton("🧹 تنظيف كل السجلات", callback_data="clean_all_logs_main")])
     keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data="back_to_main")])
+    
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "🤖 إدارة البوتات:\n\n"
-        "🟢 = يعمل\n"
-        "🔴 = متوقف\n\n"
-        "اختر البوت للإدارة:",
+        "🤖 **إدارة البوتات - النسخة المتقدمة**\n\n"
+        "🟢 = يعمل | 🔴 = متوقف\n\n"
+        "اختر البوت للإدارة أو استخدم الأزرار السريعة للسجلات:",
         reply_markup=reply_markup
     )
     return BOT_MANAGEMENT
 
+
+
+# ======= معالجة الأوامر العامة ======= #
+
+async def show_logs_options(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """عرض خيارات السجلات المتقدمة"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+
+    # الحصول على معلومات السجلات
+    log_info = "📊 **معلومات السجلات:**\n\n"
+    
+    if os.path.exists(bot_info['log_file']):
+        file_size = os.path.getsize(bot_info['log_file'])
+        log_info += f"📁 حجم الملف: {file_size / 1024:.2f} KB\n"
+        
+        with open(bot_info['log_file'], 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            log_info += f"📝 عدد الأسطر: {len(lines)}\n"
+    else:
+        log_info += "📝 لا يوجد ملف سجل\n"
+
+    keyboard = [
+        [InlineKeyboardButton("📋 كل السجلات كاملة", callback_data=f"logs_full_{actual_bot_name}")],
+        [InlineKeyboardButton("📅 سجلات آخر 24 ساعة", callback_data=f"logs_today_{actual_bot_name}")],
+        [InlineKeyboardButton("⏰ سجلات آخر ساعة", callback_data=f"logs_hour_{actual_bot_name}")],
+        [InlineKeyboardButton("🔍 آخر 100 سطر", callback_data=f"logs_{actual_bot_name}")],
+        [InlineKeyboardButton("🧹 تنظيف السجلات", callback_data=f"clean_logs_{actual_bot_name}")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data=f"manage_{actual_bot_name}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(log_info, reply_markup=reply_markup)
+
+
+
+
+async def handle_general_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الأوامر العامة والرسائل"""
+    user_id = update.effective_user.id
+    message_text = update.message.text
+    
+    # التحقق إذا كان المستخدم في وضع انتظار لأمر مخصص
+    if context.user_data.get('waiting_for_command'):
+        await handle_custom_command(update, context)
+        return
+    
+    # إذا لم يكن هناك عملية نشطة، عرض القائمة الرئيسية
+    await start(update, context)
 async def handle_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدارة البوتات"""
     query = update.callback_query
@@ -3426,6 +3721,24 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
     elif data.startswith("logs_"):
         bot_name = data[5:]
         await show_bot_logs(update, context, bot_name)
+
+
+    # في handle_button_callback
+    elif data == "clean_all_logs_main":
+        await clean_all_logs(update, context)
+ 
+    
+    elif data.startswith("logs_full_"):
+        bot_name = data[10:]
+        await show_bot_logs(update, context, bot_name)
+    
+    elif data.startswith("logs_today_"):
+        bot_name = data[11:]
+        await show_logs_by_time(update, context, bot_name, 24)
+
+    elif data.startswith("logs_hour_"):
+        bot_name = data[10:]
+        await show_logs_by_time(update, context, bot_name, 1)
 
     elif data.startswith("settings_"):
         bot_name = data[9:]
@@ -4280,7 +4593,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"فشل في إرسال رسالة الخطأ: {e}")
 
 def main():
-    """الدالة الرئيسية"""
+    """الدالة الرئيسية مع الإصلاحات"""
     if not BOT_TOKEN or BOT_TOKEN == '7':
         logger.error("❌ يرجى تعيين توكن البوت الصحيح في المتغير BOT_TOKEN")
         return
@@ -4288,6 +4601,7 @@ def main():
     try:
         application = Application.builder().token(BOT_TOKEN).build()
 
+        # المحادثات الأساسية
         conv_handler = ConversationHandler(
             entry_points=[
                 MessageHandler(filters.Regex("^(📤 رفع ملف/مشروع)$"), upload_option),
@@ -4298,20 +4612,15 @@ def main():
             ],
             states={
                 UPLOAD: [
-                    CallbackQueryHandler(handle_upload_choice,
-                                         pattern="^(upload_python|upload_zip|import_github|cancel_upload)$"),
+                    CallbackQueryHandler(handle_upload_choice, pattern="^(upload_python|upload_zip|import_github|cancel_upload)$"),
                     MessageHandler(filters.Document.ALL, handle_document),
                 ],
                 GITHUB_IMPORT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_github_import)],
                 ZIP_UPLOAD: [MessageHandler(filters.Document.ALL, handle_zip_upload)],
-                FILE_SELECTION: [
-                    CallbackQueryHandler(handle_file_selection, pattern="^(select_file_|cancel_selection)")],
-                CHOOSE_ACTION: [
-                    CallbackQueryHandler(handle_button_callback, pattern="^(run_|install_|settings_|delete_|file_manager_|download_file_|delete_file_|show_all_files_|dl_|del_|cancel_)")],
-                BOT_MANAGEMENT: [
-                    CallbackQueryHandler(handle_bot_management, pattern="^(manage_|add_new_bot|back_to_)")],
-                LIBRARY_MANAGEMENT: [CallbackQueryHandler(handle_library_management,
-                                                          pattern="^(lib_|install_|create_|upload_|view_|edit_|back_to_)")],
+                FILE_SELECTION: [CallbackQueryHandler(handle_file_selection, pattern="^(select_file_|show_all_files|back_to_selection|cancel_selection)")],
+                CHOOSE_ACTION: [CallbackQueryHandler(handle_button_callback, pattern="^(run_|install_|settings_|delete_|file_manager_|download_file_|delete_file_|show_all_files_|dl_|del_|clean_logs_|log_stats_|term_|cmd_|cancel_)")],
+                BOT_MANAGEMENT: [CallbackQueryHandler(handle_bot_management, pattern="^(manage_|add_new_bot|back_to_)")],
+                LIBRARY_MANAGEMENT: [CallbackQueryHandler(handle_library_management, pattern="^(lib_|install_|create_|upload_|view_|edit_|back_to_)")],
                 BOT_CONFIG: [CallbackQueryHandler(handle_settings_edit, pattern="^(edit_|view_|back_to_)")],
                 ENV_VAR_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_env_input)],
                 SETTINGS_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_settings_input)],
@@ -4320,12 +4629,18 @@ def main():
                     MessageHandler(filters.Document.ALL, handle_requirements_upload)
                 ],
             },
-            fallbacks=[CommandHandler('cancel', cancel), MessageHandler(filters.Regex("^/cancel$"), cancel)],
+            fallbacks=[
+                CommandHandler('cancel', cancel), 
+                MessageHandler(filters.Regex("^/cancel$"), cancel),
+                MessageHandler(filters.Regex("^/start$"), start)
+            ],
             allow_reentry=True,
             per_message=False
         )
 
         application.add_handler(conv_handler)
+        
+        # الأوامر الأساسية
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("stop_all", stop_all_bots))
@@ -4335,21 +4650,24 @@ def main():
         application.add_handler(CommandHandler("fix_states", fix_bot_states_command))
         application.add_handler(CommandHandler("fix_requirements", fix_requirements_command))
         application.add_handler(CommandHandler("system_status", system_status_command))
+        
+        # الأوامر الجديدة
+        application.add_handler(CommandHandler("terminal", terminal_control))
+        application.add_handler(CommandHandler("clean_logs", clean_all_logs))
+        application.add_handler(CommandHandler("clean_all_logs", clean_all_logs))
+        
+        # معالجة الأزرار
+        application.add_handler(CallbackQueryHandler(handle_button_callback))
+        
+        # معالجة الرسائل العامة
         application.add_handler(MessageHandler(filters.Regex("^(❌ إيقاف الجميع)$"), stop_all_bots))
         application.add_handler(MessageHandler(filters.Regex("^(📊 إحصائيات النظام)$"), show_statistics))
         application.add_handler(MessageHandler(filters.Regex("^(🆘 المساعدة المتقدمة)$"), help_command))
-        application.add_handler(CallbackQueryHandler(handle_button_callback))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_env_input))
-        application.add_handler(CommandHandler("fix_req", fix_requirements_now))
-        application.add_handler(CommandHandler("terminal", terminal_control))
-        application.add_handler(CommandHandler("clean_logs", clean_all_logs))
         application.add_handler(MessageHandler(filters.Regex("^(🧹 تنظيف السجلات)$"), clean_all_logs))
         application.add_handler(MessageHandler(filters.Regex("^(🖥️ وحدة التحكم)$"), terminal_control))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_custom_command))
-
-
-
-
+        
+        # معالجة الأوامر النصية (يجب أن تكون في الأخير)
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_general_commands))
 
         # إضافة معالج الأخطاء
         application.add_error_handler(error_handler)
