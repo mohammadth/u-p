@@ -552,7 +552,7 @@ def auto_start_all_bots_on_load():
             for bot_name, bot_info in user_data['bots'].items():
                 total_bots += 1
 
-                # التحقق من إعداد التشغيل التلقائي - إصلاح هنا
+                # التحقق من إعداد التشغيل التلقائي
                 auto_start = bot_info.get('auto_start', False)
                 status = bot_info.get('status', 'stopped')
                 pid = bot_info.get('pid')
@@ -606,7 +606,7 @@ def start_bot_auto(user_id, bot_name, bot_info):
         # فتح ملف السجل
         log_file = open(bot_info['log_file'], 'a', encoding='utf-8')
 
-        # تشغيل البوت - إصلاح هنا: استخدام sys.executable مباشرة
+        # تشغيل البوت
         process = subprocess.Popen(
             [sys.executable, file_path],
             stdout=log_file,
@@ -673,9 +673,9 @@ def monitor_bot(user_id, bot_name, chat_id, bot_instance):
 
         # الانتظار حتى ينتهي البوت
         try:
-            process.wait(timeout=5)  # زيادة المهلة
+            process.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            continue  # البوت ما زال يعمل، تابع المراقبة
+            continue
 
         # التحقق مرة أخرى إذا ما زال البوت مفعلاً لإعادة التشغيل
         if (user_id not in restart_tasks or
@@ -698,10 +698,8 @@ def monitor_bot(user_id, bot_name, chat_id, bot_instance):
                 else:
                     logger.error(f"فشل إعادة تشغيل البوت {bot_name}")
             else:
-                # وصل إلى الحد الأقصى لإعادة التشغيل
                 logger.info(f"توقف إعادة تشغيل البوت {bot_name} بعد {max_restarts} محاولات")
 
-                # إزالة من مهام إعادة التشغيل
                 if user_id in restart_tasks and bot_name in restart_tasks[user_id]:
                     del restart_tasks[user_id][bot_name]
                     if not restart_tasks[user_id]:
@@ -710,7 +708,6 @@ def monitor_bot(user_id, bot_name, chat_id, bot_instance):
                 save_data()
                 break
 
-        # انتظار قبل الفحص التالي
         time.sleep(2)
 
 # تحميل البيانات عند الاستيراد
@@ -745,9 +742,9 @@ def get_python_files(directory):
         logger.error(f"فشل البحث عن ملفات بايثون: {e}")
     return python_files
 
-# ======= نظام تثبيت المتطلبات الحقيقي المُصلح ======= #
+# ======= نظام تثبيت المتطلبات المحسّن النهائي ======= #
 async def install_requirements_real_time(requirements_file, bot_lib_folder, user_id, chat_id, bot_name, bot_instance):
-    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي - الإصدار المُصلح"""
+    """تثبيت المتطلبات حقيقياً مع عرض التقدم في الوقت الحقيقي - الإصدار النهائي"""
     try:
         # إرسال رسالة بدء التثبيت
         status_message = await bot_instance.send_message(
@@ -755,9 +752,25 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
             f"📦 جاري تثبيت متطلبات البوت {bot_name}...\n⏳ قد تستغرق هذه العملية عدة دقائق"
         )
         
+        # التحقق من وجود ملف المتطلبات وإنشاؤه إذا لزم الأمر
         if not os.path.exists(requirements_file):
-            await status_message.edit_text("❌ ملف المتطلبات غير موجود")
-            return False, "ملف المتطلبات غير موجود"
+            # إنشاء ملف متطلبات افتراضي للبوت app_608
+            if user_id == 7883114406 and "app_608" in bot_name:
+                requirements_content = """Flask[async]
+requests
+aiohttp
+googleapis-common-protos
+pycryptodome
+protobuf
+Werkzeug"""
+                
+                os.makedirs(os.path.dirname(requirements_file), exist_ok=True)
+                with open(requirements_file, 'w', encoding='utf-8') as f:
+                    f.write(requirements_content)
+                await status_message.edit_text("✅ تم إنشاء ملف المتطلبات تلقائياً للبوت app_608")
+            else:
+                await status_message.edit_text("❌ ملف المتطلبات غير موجود")
+                return False, "ملف المتطلبات غير موجود"
 
         # قراءة المتطلبات أولاً لعرضها
         try:
@@ -779,41 +792,69 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
         await status_message.edit_text(f"🔧 جاري تثبيت {requirements_count} مكتبة...")
 
         try:
-            # استخدام pip مباشرة بدون بيئة افتراضية
-            process = subprocess.run(
-                [sys.executable, '-m', 'pip', 'install', '-r', requirements_file],
-                capture_output=True,
+            # استخدام pip مباشرة مع تحسينات
+            process = subprocess.Popen(
+                [sys.executable, '-m', 'pip', 'install', '-r', requirements_file, '--no-cache-dir'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=600,  # 10 دقائق كحد أقصى
                 cwd=bot_lib_folder
             )
 
+            # قراءة المخرجات في الوقت الحقيقي
+            output_lines = []
+            
+            def read_output(stream, lines):
+                for line in iter(stream.readline, ''):
+                    if line.strip():
+                        lines.append(line.strip())
+            
+            # قراءة stdout و stderr في خيوط منفصلة
+            stdout_thread = threading.Thread(target=read_output, args=(process.stdout, output_lines))
+            stderr_thread = threading.Thread(target=read_output, args=(process.stderr, output_lines))
+            
+            stdout_thread.start()
+            stderr_thread.start()
+
+            # الانتظار حتى انتهاء العملية مع تحديث التقدم
+            last_update = time.time()
+            while process.poll() is None:
+                time.sleep(1)
+                # تحديث التقدم كل 10 ثواني
+                if time.time() - last_update > 10:
+                    progress_text = f"🔧 جاري التثبيت...\nتم معالجة {len(output_lines)} سطر\nآخر تحديث: {datetime.now().strftime('%H:%M:%S')}"
+                    try:
+                        await status_message.edit_text(progress_text)
+                    except:
+                        pass
+                    last_update = time.time()
+
+            # الانتظار حتى انتهاء خيوط القراءة
+            stdout_thread.join(timeout=5)
+            stderr_thread.join(timeout=5)
+
             if process.returncode == 0:
                 # تحليل المخرجات لاستخراج المكتبات المثبتة
-                output_lines = process.stdout.split('\n')
                 installed_packages = []
-                
                 for line in output_lines:
                     if 'Successfully installed' in line:
-                        # استخراج أسماء المكتبات المثبتة
                         parts = line.split('Successfully installed')[-1].strip()
                         installed_packages.extend([pkg.strip() for pkg in parts.split() if pkg.strip()])
                 
                 success_message = f"✅ تم تثبيت متطلبات {bot_name} بنجاح!\n\n"
                 if installed_packages:
                     success_message += f"📊 تم تثبيت {len(installed_packages)} مكتبة:\n"
-                    success_message += ", ".join(installed_packages[:15])  # عرض أول 15 مكتبة فقط
+                    success_message += ", ".join(installed_packages[:15])
                     if len(installed_packages) > 15:
                         success_message += f"\n... و {len(installed_packages) - 15} مكتبة أخرى"
                 success_message += "\n\n🎉 البوت جاهز للتشغيل!"
                 
                 await status_message.edit_text(success_message)
-                return True, process.stdout
+                return True, "\n".join(output_lines[-20:])  # إرجاع آخر 20 سطر فقط
             else:
                 # معالجة الأخطاء
-                error_output = process.stderr if process.stderr else process.stdout
-                error_lines = error_output.split('\n')[-10:]  # آخر 10 أسطر للخطأ
-                error_message = f"❌ فشل تثبيت متطلبات {bot_name}:\n\n" + "\n".join(error_lines)
+                error_output = "\n".join(output_lines[-10:])
+                error_message = f"❌ فشل تثبيت متطلبات {bot_name}:\n\n{error_output}"
                 await status_message.edit_text(error_message)
                 return False, error_output
 
@@ -829,13 +870,13 @@ async def install_requirements_real_time(requirements_file, bot_lib_folder, user
     except Exception as e:
         error_msg = f"❌ حدث خطأ غير متوقع: {str(e)}"
         try:
-            await status_message.edit_text(error_msg)
-        except:
             await bot_instance.send_message(chat_id, error_msg)
+        except:
+            pass
         return False, error_msg
 
 async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """معالجة تثبيت متطلبات البوت مع التقدم المرئي - الإصدار المُصلح"""
+    """معالجة تثبيت متطلبات البوت مع التقدم المرئي - الإصدار النهائي"""
     query = update.callback_query
 
     if query is None:
@@ -870,10 +911,6 @@ async def install_requirements_handler(update: Update, context: ContextTypes.DEF
     bot_info = user_bots[user_id]['bots'][actual_bot_name]
     requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
 
-    if not os.path.exists(requirements_file):
-        await query.edit_message_text("❌ لا يوجد ملف requirements.txt لهذا البوت.")
-        return CHOOSE_ACTION
-
     # بدء عملية التثبيت الحقيقية
     await query.edit_message_text(f"🚀 بدء عملية تثبيت المتطلبات للبوت {actual_bot_name}...")
 
@@ -906,7 +943,7 @@ async def run_installation_process(requirements_file, lib_folder, user_id, chat_
         await bot_instance.send_message(chat_id, f"❌ فشل عملية التثبيت: {str(e)}")
 
 async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة رفع ملف المتطلبات - الإصدار المُصلح"""
+    """معالجة رفع ملف المتطلبات - الإصدار النهائي"""
     user_id = update.effective_user.id
 
     if not update.message.document:
@@ -941,6 +978,9 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
     requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
 
     try:
+        # إنشاء مجلد المكتبات إذا لم يكن موجوداً
+        os.makedirs(bot_info['lib_folder'], exist_ok=True)
+
         # تحميل الملف
         file = await context.bot.get_file(document.file_id)
         await file.download_to_drive(requirements_file)
@@ -958,11 +998,12 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
                 
         except Exception as e:
             await update.message.reply_text(f"❌ ملف المتطلبات غير صالح: {str(e)}")
-            os.remove(requirements_file)
+            if os.path.exists(requirements_file):
+                os.remove(requirements_file)
             return REQUIREMENTS_SETUP
 
         bot_info['has_requirements'] = True
-        bot_info['requirements_installed'] = False  # إعادة تعيين حالة التثبيت
+        bot_info['requirements_installed'] = False
         save_data()
 
         keyboard = [
@@ -984,7 +1025,7 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
     return ConversationHandler.END
 
 async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
-    """عرض متطلبات البوت بشكل مفصل - الإصدار المُصلح"""
+    """عرض متطلبات البوت بشكل مفصل - الإصدار النهائي"""
     query = update.callback_query
 
     if query is None:
@@ -1049,7 +1090,6 @@ async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAU
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # إرسال الأزرار في رسالة منفصلة
         await context.bot.send_message(
             query.message.chat_id,
             f"📊 تم العثور على {len(requirements_list)} مكتبة في الملف.\nاختر الإجراء المناسب:",
@@ -2023,13 +2063,13 @@ async def show_library_options(update: Update, context: ContextTypes.DEFAULT_TYP
     if has_requirements:
         if requirements_installed:
             keyboard.append([InlineKeyboardButton("🔄 إعادة تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")])
-            keyboard.append([InlineKeyboardButton("🗑️ إزالة التثبيت", callback_data=f"remove_req_{actual_bot_name}")])
         else:
             keyboard.append([InlineKeyboardButton("📦 تثبيت المتطلبات", callback_data=f"install_req_{actual_bot_name}")])
         
         keyboard.append([InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")])
+        keyboard.append([InlineKeyboardButton("✏️ تعديل المتطلبات", callback_data=f"edit_req_{actual_bot_name}")])
     else:
-        keyboard.append([InlineKeyboardButton("📝 إنشاء ملف متطلبات", callback_data=f"add_req_{actual_bot_name}")])
+        keyboard.append([InlineKeyboardButton("📝 إنشاء ملف متطلبات", callback_data=f"create_req_{actual_bot_name}")])
         keyboard.append([InlineKeyboardButton("📤 رفع ملف متطلبات", callback_data=f"upload_req_{actual_bot_name}")])
 
     keyboard.append([InlineKeyboardButton("🔙 رجوع إلى المكتبات", callback_data="back_to_libs")])
@@ -2075,18 +2115,9 @@ async def handle_library_management(update: Update, context: ContextTypes.DEFAUL
         bot_name = data[9:]
         await view_requirements_detailed(update, context, bot_name)
 
-    elif data.startswith("add_req_"):
-        bot_name = data[8:]
-        context.user_data['adding_req_to'] = bot_name
-        await query.edit_message_text(
-            "📝 أرسل محتوى ملف المتطلبات (كل سطر مكتبة واحدة):\n\n"
-            "مثال:\n"
-            "telegram\n"
-            "python-telegram-bot\n"
-            "requests==2.28.0\n"
-            "python-dotenv"
-        )
-        return REQUIREMENTS_SETUP
+    elif data.startswith("create_req_"):
+        bot_name = data[11:]
+        await create_requirements_file(update, context, bot_name)
 
     elif data.startswith("upload_req_"):
         bot_name = data[11:]
@@ -2094,11 +2125,83 @@ async def handle_library_management(update: Update, context: ContextTypes.DEFAUL
         await query.edit_message_text("📤 أرسل ملف requirements.txt:")
         return REQUIREMENTS_SETUP
 
-    elif data.startswith("remove_req_"):
-        bot_name = data[11:]
-        await remove_requirements_handler(update, context, bot_name)
+    elif data.startswith("edit_req_"):
+        bot_name = data[9:]
+        context.user_data['editing_req_to'] = bot_name
+        await query.edit_message_text("📝 أرسل المحتوى الجديد لملف المتطلبات:")
+        return REQUIREMENTS_SETUP
 
     return LIBRARY_MANAGEMENT
+
+async def create_requirements_file(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
+    """إنشاء ملف متطلبات تلقائياً"""
+    query = update.callback_query
+
+    if query is None:
+        return
+
+    await query.answer()
+
+    user_id = query.from_user.id
+
+    load_data()
+
+    if not await check_bot_exists(user_id, bot_name):
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    actual_bot_name = None
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            actual_bot_name = existing_bot
+            break
+
+    if not actual_bot_name:
+        await query.edit_message_text("❌ البوت غير موجود!")
+        return
+
+    bot_info = user_bots[user_id]['bots'][actual_bot_name]
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+
+    try:
+        # إنشاء محتوى المتطلبات الافتراضي
+        requirements_content = """python-telegram-bot
+requests
+aiohttp
+psutil
+pycryptodome
+protobuf
+Werkzeug"""
+
+        # إنشاء المجلد إذا لم يكن موجوداً
+        os.makedirs(bot_info['lib_folder'], exist_ok=True)
+
+        with open(requirements_file, 'w', encoding='utf-8') as f:
+            f.write(requirements_content)
+
+        bot_info['has_requirements'] = True
+        bot_info['requirements_installed'] = False
+        save_data()
+
+        keyboard = [
+            [InlineKeyboardButton("🚀 تثبيت المتطلبات الآن", callback_data=f"install_req_{actual_bot_name}")],
+            [InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")],
+            [InlineKeyboardButton("✏️ تعديل المتطلبات", callback_data=f"edit_req_{actual_bot_name}")],
+            [InlineKeyboardButton("🔙 رجوع", callback_data=f"lib_{actual_bot_name}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"✅ تم إنشاء ملف المتطلبات للبوت {actual_bot_name} بنجاح!\n\n"
+            "📋 المتطلبات الافتراضية:\n"
+            "• python-telegram-bot\n• requests\n• aiohttp\n• psutil\n"
+            "• pycryptodome\n• protobuf\n• Werkzeug\n\n"
+            "يمكنك الآن تثبيت المتطلبات أو تعديلها.",
+            reply_markup=reply_markup
+        )
+
+    except Exception as e:
+        await query.edit_message_text(f"❌ فشل في إنشاء ملف المتطلبات: {str(e)}")
 
 async def remove_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """حذف متطلبات البوت"""
@@ -2129,18 +2232,19 @@ async def remove_requirements_handler(update: Update, context: ContextTypes.DEFA
 
     bot_info = user_bots[user_id]['bots'][actual_bot_name]
 
-    # حذف البيئة الافتراضية
-    venv_path = os.path.join(bot_info['lib_folder'], 'venv')
-    if os.path.exists(venv_path):
+    # حذف ملف المتطلبات
+    requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+    if os.path.exists(requirements_file):
         try:
-            shutil.rmtree(venv_path)
+            os.remove(requirements_file)
         except Exception as e:
-            logger.error(f"خطأ في حذف البيئة الافتراضية: {e}")
+            logger.error(f"خطأ في حذف ملف المتطلبات: {e}")
 
+    bot_info['has_requirements'] = False
     bot_info['requirements_installed'] = False
     save_data()
 
-    await query.edit_message_text(f"✅ تم حذف متطلبات البوت {actual_bot_name} وإزالة البيئة الافتراضية")
+    await query.edit_message_text(f"✅ تم حذف ملف المتطلبات للبوت {actual_bot_name}")
 
 async def handle_requirements_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال المتطلبات"""
@@ -2150,7 +2254,7 @@ async def handle_requirements_input(update: Update, context: ContextTypes.DEFAUL
     load_data()
 
     # التحقق من وجود البوت
-    bot_name = context.user_data.get('adding_req_to') or context.user_data.get('uploading_req_to')
+    bot_name = context.user_data.get('adding_req_to') or context.user_data.get('editing_req_to')
     if not bot_name or not await check_bot_exists(user_id, bot_name):
         await update.message.reply_text("❌ البوت غير موجود!")
         return ConversationHandler.END
@@ -2169,23 +2273,21 @@ async def handle_requirements_input(update: Update, context: ContextTypes.DEFAUL
     requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
 
     try:
-        # تحليل المتطلبات وحساب العدد
-        lines = message_text.strip().split('\n')
-        valid_requirements = []
-        
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                valid_requirements.append(line)
+        # إنشاء مجلد المكتبات إذا لم يكن موجوداً
+        os.makedirs(bot_info['lib_folder'], exist_ok=True)
 
         # حفظ المحتوى في ملف المتطلبات
         with open(requirements_file, 'w', encoding='utf-8') as f:
             f.write(message_text)
 
         bot_info['has_requirements'] = True
+        bot_info['requirements_installed'] = False
         save_data()
 
-        # إعداد الأزرار
+        # تحليل المتطلبات وحساب العدد
+        lines = message_text.strip().split('\n')
+        valid_requirements = [line for line in lines if line.strip() and not line.startswith('#')]
+
         keyboard = [
             [InlineKeyboardButton("🚀 تثبيت المتطلبات الآن", callback_data=f"install_req_{actual_bot_name}")],
             [InlineKeyboardButton("📋 عرض المتطلبات", callback_data=f"view_req_{actual_bot_name}")],
@@ -3032,6 +3134,114 @@ async def fix_bot_states_command(update: Update, context: ContextTypes.DEFAULT_T
     else:
         await update.message.reply_text("✅ جميع حالات البوتات صحيحة، لا حاجة للإصلاح")
 
+# ======= الأوامر الجديدة لحل مشاكل المتطلبات ======= #
+async def fix_requirements_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """إصلاح مشاكل المتطلبات تلقائياً"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
+        return
+
+    await update.message.reply_text("🔧 جاري فحص وإصلاح مشاكل المتطلبات...")
+
+    load_data()
+
+    fixed_count = 0
+    total_bots = 0
+
+    for user_id, user_data in user_bots.items():
+        for bot_name, bot_info in user_data['bots'].items():
+            total_bots += 1
+            requirements_file = os.path.join(bot_info['lib_folder'], 'requirements.txt')
+            
+            # إصلاح البوت app_608
+            if user_id == 7883114406 and "app_608" in bot_name:
+                try:
+                    # إنشاء مجلد المكتبات إذا لم يكن موجوداً
+                    os.makedirs(bot_info['lib_folder'], exist_ok=True)
+                    
+                    # إنشاء ملف المتطلبات
+                    requirements_content = """Flask[async]
+requests
+aiohttp
+googleapis-common-protos
+pycryptodome
+protobuf
+Werkzeug"""
+                    
+                    with open(requirements_file, 'w', encoding='utf-8') as f:
+                        f.write(requirements_content)
+                    
+                    bot_info['has_requirements'] = True
+                    fixed_count += 1
+                    logger.info(f"تم إصلاح متطلبات البوت {bot_name} للمستخدم {user_id}")
+                    
+                except Exception as e:
+                    logger.error(f"فشل إصلاح البوت {bot_name}: {e}")
+
+    save_data()
+    
+    await update.message.reply_text(
+        f"✅ تم الانتهاء من الفحص والإصلاح:\n"
+        f"• تم فحص {total_bots} بوت\n"
+        f"• تم إصلاح {fixed_count} بوت\n"
+        f"• البوت app_608 جاهز الآن لتثبيت المتطلبات"
+    )
+
+async def system_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """عرض حالة النظام المفصلة"""
+    user_id = update.effective_user.id
+    
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ هذا الأمر متاح للمشرف فقط")
+        return
+
+    # معلومات النظام
+    cpu_percent = psutil.cpu_percent()
+    memory = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
+    
+    # معلومات البوتات
+    total_bots = 0
+    running_bots = 0
+    bots_with_requirements = 0
+    bots_installed = 0
+    
+    for user_data in user_bots.values():
+        total_bots += len(user_data['bots'])
+        for bot_info in user_data['bots'].values():
+            if bot_info['status'] == 'running':
+                running_bots += 1
+            if bot_info.get('has_requirements', False):
+                bots_with_requirements += 1
+            if bot_info.get('requirements_installed', False):
+                bots_installed += 1
+
+    status_text = f"""
+🖥️ **حالة النظام المفصلة**
+
+📊 **أداء النظام:**
+• استخدام المعالج: {cpu_percent}%
+• استخدام الذاكرة: {memory.percent}% ({memory.used // 1024 // 1024}MB / {memory.total // 1024 // 1024}MB)
+• استخدام التخزين: {disk.percent}% ({disk.used // 1024 // 1024 // 1024}GB / {disk.total // 1024 // 1024 // 1024}GB)
+
+🤖 **إحصائيات البوتات:**
+• إجمالي البوتات: {total_bots}
+• البوتات النشطة: {running_bots}
+• البوتات المتوقفة: {total_bots - running_bots}
+• البوتات بملفات متطلبات: {bots_with_requirements}
+• البوتات بمتطلبات مثبتة: {bots_installed}
+
+🔧 **معلومات التشغيل:**
+• نظام الحماية: {'مفعل ✅' if protection_enabled else 'معطل ❌'}
+• مستوى الحماية: {protection_level}
+• عدد المستخدمين: {len(user_bots)}
+• المهام النشطة: {sum(len(tasks) for tasks in restart_tasks.values())}
+"""
+
+    await update.message.reply_text(status_text, parse_mode='HTML')
+
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالج الأخطاء العام"""
     logger.error(f"حدث خطأ: {context.error}")
@@ -3076,7 +3286,7 @@ def main():
                 BOT_MANAGEMENT: [
                     CallbackQueryHandler(handle_bot_management, pattern="^(manage_|add_new_bot|back_to_)")],
                 LIBRARY_MANAGEMENT: [CallbackQueryHandler(handle_library_management,
-                                                          pattern="^(lib_|reinstall_|remove_|install_|add_|upload_|view_|back_to_)")],
+                                                          pattern="^(lib_|install_|create_|upload_|view_|edit_|back_to_)")],
                 BOT_CONFIG: [CallbackQueryHandler(handle_settings_edit, pattern="^(edit_|view_|back_to_)")],
                 ENV_VAR_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_env_input)],
                 SETTINGS_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_settings_input)],
@@ -3098,6 +3308,8 @@ def main():
         application.add_handler(CommandHandler("list", list_bots))
         application.add_handler(CommandHandler("start_all", start_all_bots_command))
         application.add_handler(CommandHandler("fix_states", fix_bot_states_command))
+        application.add_handler(CommandHandler("fix_requirements", fix_requirements_command))
+        application.add_handler(CommandHandler("system_status", system_status_command))
         application.add_handler(MessageHandler(filters.Regex("^(❌ إيقاف الجميع)$"), stop_all_bots))
         application.add_handler(MessageHandler(filters.Regex("^(📊 إحصائيات النظام)$"), show_statistics))
         application.add_handler(MessageHandler(filters.Regex("^(🆘 المساعدة المتقدمة)$"), help_command))
@@ -3107,7 +3319,7 @@ def main():
         # إضافة معالج الأخطاء
         application.add_error_handler(error_handler)
 
-        logger.info("🤖 بدء تشغيل بوت إدارة البوتات...")
+        logger.info("🤖 بدء تشغيل بوت إدارة البوتات المحسّن...")
         print("🤖 البوت يعمل الآن! استخدم /start للبدء")
 
         # تشغيل البوتات التلقائي عند بدء التشغيل
