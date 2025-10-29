@@ -276,11 +276,10 @@ LOG_FOLDER = 'logs'
 CONFIG_FOLDER = 'configs'
 TEMP_FOLDER = 'temp'
 LIBRARY_FOLDER = 'libraries'
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(LOG_FOLDER, exist_ok=True)
-os.makedirs(CONFIG_FOLDER, exist_ok=True)
-os.makedirs(TEMP_FOLDER, exist_ok=True)
-os.makedirs(LIBRARY_FOLDER, exist_ok=True)
+
+# إنشاء المجلدات إذا لم تكن موجودة
+for folder in [UPLOAD_FOLDER, LOG_FOLDER, CONFIG_FOLDER, TEMP_FOLDER, LIBRARY_FOLDER]:
+    os.makedirs(folder, exist_ok=True)
 
 # هياكل البيانات المحسنة لتقليل استخدام الذاكرة
 user_bots: Dict[int, Dict] = {}
@@ -523,8 +522,14 @@ def cleanup_memory_cache():
     
     if current_time - LAST_CLEANUP > CACHE_EXPIRY:
         expired_keys = []
-        for key, (timestamp, value) in MEMORY_CACHE.items():
-            if current_time - timestamp > CACHE_EXPIRY:
+        for key, value in MEMORY_CACHE.items():
+            # إذا كان التخزين المؤقت يحتوي على الطوابع الزمنية
+            if isinstance(value, tuple) and len(value) == 2:
+                timestamp, cached_value = value
+                if current_time - timestamp > CACHE_EXPIRY:
+                    expired_keys.append(key)
+            else:
+                # إذا لم يكن هناك طابع زمني، احذفه
                 expired_keys.append(key)
         
         for key in expired_keys:
@@ -574,9 +579,6 @@ def load_data():
         else:
             restart_tasks = {}
             logger.warning("لم يتم العثور على ملف restart_tasks.json")
-
-        # تشغيل البوتات التلقائي بعد تحميل البيانات
-        auto_start_all_bots_on_load()
 
     except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
         logger.error(f"خطأ في تحميل البيانات: {e}")
@@ -1454,7 +1456,6 @@ async def show_all_extracted_files(update: Update, context: ContextTypes.DEFAULT
         "اختر الملف الرئيسي لتشغيله:",
         reply_markup=reply_markup
     )
-
 
 
 async def install_requirements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
@@ -4762,35 +4763,42 @@ def main():
         logger.info("جاري تشغيل البوتات التلقائية...")
         auto_start_all_bots_on_load()
 
-        # بدء مراقبة استخدام الذاكرة
-        asyncio.create_task(memory_monitor())
-
+        # بدء مراقبة استخدام الذاكرة بشكل صحيح
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # بدء البوت
         application.run_polling(drop_pending_updates=True)
 
     except Exception as e:
         logger.error(f"❌ فشل تشغيل البوت: {e}")
         print(f"❌ فشل تشغيل البوت: {e}")
 
-async def memory_monitor():
-    """مراقبة استخدام الذاكرة وتنظيفها تلقائياً"""
-    while True:
-        try:
-            # تحسين استخدام الذاكرة كل 5 دقائق
-            optimize_memory_usage()
-            
-            # مراقبة استخدام الذاكرة
-            process = psutil.Process()
-            memory_usage = process.memory_info().rss / 1024 / 1024  # بالـ MB
-            
-            if memory_usage > 500:  # إذا تجاوز 500 MB
-                logger.warning(f"استخدام الذاكرة مرتفع: {memory_usage:.2f} MB")
-                # تنظيف إضافي للذاكرة
-                cleanup_memory_cache()
-                
-        except Exception as e:
-            logger.error(f"خطأ في مراقبة الذاكرة: {e}")
-        
-        await asyncio.sleep(300)  # انتظار 5 دقائق
+# دالة مراقبة الذاكرة المعدلة
+def start_memory_monitor():
+    """بدء مراقبة الذاكرة في خيط منفصل"""
+    def monitor():
+        while True:
+            try:
+                optimize_memory_usage()
+                time.sleep(300)  # كل 5 دقائق
+            except Exception as e:
+                logger.error(f"خطأ في مراقبة الذاكرة: {e}")
+                time.sleep(60)  # انتظار دقيقة ثم إعادة المحاولة
+    
+    monitor_thread = threading.Thread(target=monitor, daemon=True)
+    monitor_thread.start()
+    logger.info("✅ بدء مراقبة الذاكرة")
 
 if __name__ == '__main__':
+    # بدء مراقبة الذاكرة
+    start_memory_monitor()
+    
+    # تشغيل البوت الرئيسي
     main()
+
+
+
+
+
