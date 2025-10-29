@@ -22,7 +22,7 @@ import platform
 import socket
 import html
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Set
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler, \
@@ -251,10 +251,14 @@ PROTECTION_LEVELS = {
     }
 }
 
-# إعدادات التسجيل
+# إعدادات التسجيل المحسنة لتقليل استخدام الذاكرة
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler('bot_manager.log', encoding='utf-8', mode='a'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -278,7 +282,7 @@ os.makedirs(CONFIG_FOLDER, exist_ok=True)
 os.makedirs(TEMP_FOLDER, exist_ok=True)
 os.makedirs(LIBRARY_FOLDER, exist_ok=True)
 
-# هياكل البيانات
+# هياكل البيانات المحسنة لتقليل استخدام الذاكرة
 user_bots: Dict[int, Dict] = {}
 restart_tasks: Dict[int, Dict] = {}
 bot_processes: Dict[str, subprocess.Popen] = {}
@@ -288,6 +292,11 @@ bot_scripts = defaultdict(lambda: {'processes': [], 'name': '', 'path': '', 'upl
 user_files = {}
 lock = threading.Lock()
 current_chat_session = None
+
+# متغيرات التحكم في الذاكرة
+MEMORY_CACHE = {}
+CACHE_EXPIRY = 300  # 5 دقائق
+LAST_CLEANUP = time.time()
 
 # ======= دوال مساعدة للحماية ======= #
 def get_current_protection_patterns():
@@ -303,20 +312,25 @@ def get_current_sensitive_files():
 def is_admin(user_id):
     return user_id == ADMIN_ID
 
-# ======= دوال الحماية ======= #
+# ======= دوال الحماية المحسنة ======= #
 def scan_file_for_malicious_code(file_path, user_id):
     """دالة للتحقق من أن الملف لا يحتوي على تعليمات خطيرة"""
     if is_admin(user_id):
-        logging.info(f"تخطي فحص الملف للأدمن: {file_path}")
+        logger.info(f"تخطي فحص الملف للأدمن: {file_path}")
         return False, None, ""
 
     try:
         if not protection_enabled:
-            logging.info(f"الحماية معطلة، تخطي فحص الملف: {file_path}")
+            logger.info(f"الحماية معطلة، تخطي فحص الملف: {file_path}")
             return False, None, ""
 
+        # استخدام cache لتجنب إعادة الفحص
+        cache_key = f"scan_{user_id}_{os.path.basename(file_path)}"
+        if cache_key in MEMORY_CACHE:
+            return MEMORY_CACHE[cache_key]
+
         with open(file_path, 'rb') as f:
-            raw_data = f.read()
+            raw_data = f.read(MAX_FILE_SIZE)  # قراءة جزء فقط لتوفير الذاكرة
             encoding_info = chardet.detect(raw_data)
             encoding = encoding_info['encoding'] or 'utf-8'
 
@@ -325,7 +339,7 @@ def scan_file_for_malicious_code(file_path, user_id):
         patterns = get_current_protection_patterns()
         sensitive_files = get_current_sensitive_files()
 
-        logging.info(f"فحص الملف: {file_path} بمستوى الحماية: {protection_level}")
+        logger.info(f"فحص الملف: {file_path} بمستوى الحماية: {protection_level}")
 
         threat_type = ""
 
@@ -345,7 +359,9 @@ def scan_file_for_malicious_code(file_path, user_id):
                 shutil.copy2(file_path, suspicious_file_path)
 
                 log_suspicious_activity(user_id, activity, file_name)
-                return True, activity, threat_type
+                result = (True, activity, threat_type)
+                MEMORY_CACHE[cache_key] = result
+                return result
 
         for sensitive_file in sensitive_files:
             if sensitive_file.lower() in content.lower():
@@ -357,48 +373,63 @@ def scan_file_for_malicious_code(file_path, user_id):
                 shutil.copy2(file_path, suspicious_file_path)
 
                 log_suspicious_activity(user_id, activity, file_name)
-                return True, activity, threat_type
+                result = (True, activity, threat_type)
+                MEMORY_CACHE[cache_key] = result
+                return result
 
-        return False, None, ""
+        result = (False, None, "")
+        MEMORY_CACHE[cache_key] = result
+        return result
     except Exception as e:
-        logging.error(f"فشل في فحص الملف {file_path}: {e}")
+        logger.error(f"فشل في فحص الملف {file_path}: {e}")
         return True, f"خطأ في الفحص: {e}", "malicious"
 
 def scan_zip_for_malicious_code(zip_path, user_id):
     """دالة لفحص الملفات في الأرشيف"""
     if is_admin(user_id):
-        logging.info(f"تخطي فحص الأرشيف للأدمن: {zip_path}")
+        logger.info(f"تخطي فحص الأرشيف للأدمن: {zip_path}")
         return False, None, ""
 
     try:
         if not protection_enabled:
-            logging.info(f"الحماية معطلة، تخطي فحص الأرشيف: {zip_path}")
+            logger.info(f"الحماية معطلة، تخطي فحص الأرشيف: {zip_path}")
             return False, None, ""
+
+        cache_key = f"scan_zip_{user_id}_{os.path.basename(zip_path)}"
+        if cache_key in MEMORY_CACHE:
+            return MEMORY_CACHE[cache_key]
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(temp_dir)
+                # فحص أول 10 ملفات فقط لتوفير الذاكرة
+                file_list = zip_ref.namelist()[:10]
+                for file_name in file_list:
+                    if file_name.endswith('.py'):
+                        with zip_ref.open(file_name) as file:
+                            content = file.read(1024 * 1024).decode('utf-8', errors='ignore')  # قراءة 1MB فقط
+                            
+                            patterns = get_current_protection_patterns()
+                            for pattern in patterns:
+                                if re.search(pattern, content, re.IGNORECASE):
+                                    activity = f"تم اكتشاف أمر خطير في الأرشيف: {pattern}"
+                                    result = (True, activity, "malicious")
+                                    MEMORY_CACHE[cache_key] = result
+                                    return result
 
-            for root, dirs, files in os.walk(temp_dir):
-                for file in files:
-                    if file.endswith('.py'):
-                        file_path = os.path.join(root, file)
-                        is_malicious, activity, threat_type = scan_file_for_malicious_code(file_path, user_id)
-                        if is_malicious:
-                            return True, activity, threat_type
-
-        return False, None, ""
+        result = (False, None, "")
+        MEMORY_CACHE[cache_key] = result
+        return result
     except Exception as e:
-        logging.error(f"فشل في فحص الأرشيف {zip_path}: {e}")
+        logger.error(f"فشل في فحص الأرشيف {zip_path}: {e}")
         return True, f"خطأ في فحص الأرشيف: {e}", "malicious"
 
 def log_suspicious_activity(user_id, activity, file_name=None):
     """دالة لتسجيل النشاط المشبوه وإرسال تنبيه للمشرف"""
     try:
         banned_users.add(user_id)
-        logging.warning(f"تم حظر المستخدم {user_id} بسبب نشاط مشبوه: {activity}")
+        logger.warning(f"تم حظر المستخدم {user_id} بسبب نشاط مشبوه: {activity}")
     except Exception as e:
-        logging.error(f"فشل في تسجيل النشاط المشبوه: {e}")
+        logger.error(f"فشل في تسجيل النشاط المشبوه: {e}")
 
 def gather_device_info():
     """جمع معلومات الجهاز"""
@@ -434,14 +465,14 @@ def gather_device_info():
 
         return info
     except Exception as e:
-        logging.error(f"فشل في جمع معلومات الجهاز: {e}")
+        logger.error(f"فشل في جمع معلومات الجهاز: {e}")
         return {"error": str(e)}
 
 def is_safe_file(file_path):
     """دالة للتحقق من أن الملف لا يحتوي على تعليمات خطيرة"""
     try:
         with open(file_path, 'rb') as f:
-            raw_content = f.read()
+            raw_content = f.read(1024 * 1024)  # قراءة 1MB فقط
             encoding_info = chardet.detect(raw_content)
             encoding = encoding_info['encoding']
 
@@ -465,7 +496,7 @@ def is_safe_file(file_path):
 
         return "الملف آمن"
     except Exception as e:
-        logging.error(f"Error checking file safety: {e}")
+        logger.error(f"Error checking file safety: {e}")
         return " ❌ لم يتم رفع الملف يحتوي على أوامر غير مسموح بها"
 
 def is_text(content):
@@ -484,9 +515,46 @@ def file_contains_input_or_eval(content):
     except:
         return False
 
+# ======= نظام إدارة الذاكرة المحسن ======= #
+def cleanup_memory_cache():
+    """تنظيف ذاكرة التخزين المؤقت"""
+    global MEMORY_CACHE, LAST_CLEANUP
+    current_time = time.time()
+    
+    if current_time - LAST_CLEANUP > CACHE_EXPIRY:
+        expired_keys = []
+        for key, (timestamp, value) in MEMORY_CACHE.items():
+            if current_time - timestamp > CACHE_EXPIRY:
+                expired_keys.append(key)
+        
+        for key in expired_keys:
+            del MEMORY_CACHE[key]
+        
+        LAST_CLEANUP = current_time
+        logger.info(f"تم تنظيف ذاكرة التخزين المؤقت: {len(expired_keys)} عنصر")
+
+def optimize_memory_usage():
+    """تحسين استخدام الذاكرة"""
+    try:
+        # تنظيف ذاكرة التخزين المؤقت
+        cleanup_memory_cache()
+        
+        # إجبار جمع القمامة
+        import gc
+        collected = gc.collect()
+        logger.info(f"تم جمع {collected} كائن من الذاكرة")
+        
+        # تحليل استخدام الذاكرة الحالي
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        logger.info(f"استخدام الذاكرة الحالي: {memory_info.rss / 1024 / 1024:.2f} MB")
+        
+    except Exception as e:
+        logger.error(f"خطأ في تحسين الذاكرة: {e}")
+
 # ======= نظام التشغيل التلقائي المحسن ======= #
 def load_data():
-    """تحميل البيانات مع تحسينات للأمان"""
+    """تحميل البيانات مع تحسينات للأمان والذاكرة"""
     global user_bots, restart_tasks
     try:
         if os.path.exists(os.path.join(CONFIG_FOLDER, 'user_bots.json')):
@@ -771,13 +839,7 @@ def get_python_files(directory):
     
     return python_files
 
-# ======= نظام تثبيت المتطلبات المحسّن النهائي ======= #
-
-
-# ======= دوال تنظيف السجلات ======= #
-# أضف هذا الكود في المكان المناسب بعد دوال إدارة الملفات
-
-# ======= دوال تنظيف السجلات ======= #
+# ======= دوال تنظيف السجلات المحسنة ======= #
 async def clean_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """تنظيف سجلات البوت"""
     query = update.callback_query
@@ -787,7 +849,7 @@ async def clean_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -904,7 +966,7 @@ async def show_logs_statistics(update: Update, context: ContextTypes.DEFAULT_TYP
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -963,7 +1025,7 @@ async def show_logs_statistics(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
 
-# ======= نظام التحكم في الاستضافة ======= #
+# ======= نظام التحكم في الاستضافة المحسن ======= #
 async def terminal_control(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """فتح واجهة التحكم في الاستضافة"""
     user_id = update.effective_user.id
@@ -1409,7 +1471,7 @@ async def install_requirements_handler(update: Update, context: ContextTypes.DEF
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return CHOOSE_ACTION
 
@@ -1485,7 +1547,7 @@ async def fix_requirements_now(update: Update, context: ContextTypes.DEFAULT_TYP
     
     load_data()
     
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await update.message.reply_text("❌ البوت غير موجود!")
         return
 
@@ -1585,7 +1647,7 @@ async def handle_requirements_upload(update: Update, context: ContextTypes.DEFAU
 
     # التحقق من وجود البوت
     bot_name = context.user_data.get('uploading_req_to')
-    if not bot_name or not await check_bot_exists(user_id, bot_name):
+    if not bot_name or not check_bot_exists(user_id, bot_name):
         await update.message.reply_text("❌ البوت غير موجود!")
         return ConversationHandler.END
 
@@ -1660,7 +1722,7 @@ async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAU
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -1724,10 +1786,22 @@ async def view_requirements_detailed(update: Update, context: ContextTypes.DEFAU
     except Exception as e:
         await query.edit_message_text(f"❌ حدث خطأ أثناء قراءة الملف: {str(e)}")
 
-# ======= دوال مساعدة للبوتات ======= #
+# ======= دوال مساعدة للبوتات المحسنة ======= #
+def check_bot_exists(user_id: int, bot_name: str) -> bool:
+    """فحص إذا كان البوت موجود في قاعدة البيانات"""
+    load_data()
 
+    if user_id not in user_bots:
+        return False
 
-# ======= دوال إدارة ملفات البوت ======= #
+    # البحث عن البوت بغض النظر عن حالة الأحرف
+    for existing_bot in user_bots[user_id]['bots'].keys():
+        if existing_bot.lower() == bot_name.lower():
+            return True
+
+    return False
+
+# ======= دوال إدارة ملفات البوت المحسنة ======= #
 async def list_bot_files(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """عرض ملفات البوت"""
     query = update.callback_query
@@ -1737,7 +1811,7 @@ async def list_bot_files(update: Update, context: ContextTypes.DEFAULT_TYPE, bot
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -1819,7 +1893,7 @@ async def download_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -1916,7 +1990,7 @@ async def delete_bot_file(update: Update, context: ContextTypes.DEFAULT_TYPE, bo
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -2010,7 +2084,7 @@ async def show_all_bot_files(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -2071,23 +2145,6 @@ async def show_all_bot_files(update: Update, context: ContextTypes.DEFAULT_TYPE,
     except Exception as e:
         await query.edit_message_text(f"❌ حدث خطأ: {str(e)}")
 
-
-async def check_bot_exists(user_id: int, bot_name: str) -> bool:
-    """فحص إذا كان البوت موجود في قاعدة البيانات"""
-    load_data()
-
-    if user_id not in user_bots:
-        return False
-
-    if bot_name in user_bots[user_id]['bots']:
-        return True
-
-    for existing_bot in user_bots[user_id]['bots'].keys():
-        if existing_bot.lower() == bot_name.lower():
-            return True
-
-    return False
-
 async def auto_start_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     """تشغيل جميع البوتات تلقائياً للمستخدم"""
     load_data()
@@ -2111,7 +2168,7 @@ async def auto_start_all_bots(update: Update, context: ContextTypes.DEFAULT_TYPE
     if bot_count > 0:
         await update.message.reply_text(f"✅ تم تشغيل {bot_count} بوت تلقائياً")
 
-# ======= handlers المحادثة ======= #
+# ======= handlers المحادثة المحسنة ======= #
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة أمر /start مع الإضافات الجديدة"""
     user_id = update.effective_user.id
@@ -2626,7 +2683,7 @@ async def run_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bo
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -2718,7 +2775,7 @@ async def stop_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, b
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -2779,7 +2836,7 @@ async def delete_bot_handler(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -2870,7 +2927,7 @@ async def show_logs_by_time(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3001,7 +3058,7 @@ async def show_bot_logs(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3117,7 +3174,7 @@ async def show_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3215,7 +3272,7 @@ async def show_library_options(update: Update, context: ContextTypes.DEFAULT_TYP
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3339,7 +3396,7 @@ async def create_requirements_file(update: Update, context: ContextTypes.DEFAULT
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3409,7 +3466,7 @@ async def remove_requirements_handler(update: Update, context: ContextTypes.DEFA
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3448,7 +3505,7 @@ async def handle_requirements_input(update: Update, context: ContextTypes.DEFAUL
 
     # التحقق من وجود البوت
     bot_name = context.user_data.get('adding_req_to') or context.user_data.get('editing_req_to')
-    if not bot_name or not await check_bot_exists(user_id, bot_name):
+    if not bot_name or not check_bot_exists(user_id, bot_name):
         await update.message.reply_text("❌ البوت غير موجود!")
         return ConversationHandler.END
 
@@ -3546,10 +3603,7 @@ async def show_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return BOT_MANAGEMENT
 
-
-
-# ======= معالجة الأوامر العامة ======= #
-
+# ======= معالجة الأوامر العامة المحسنة ======= #
 async def show_logs_options(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_name: str):
     """عرض خيارات السجلات المتقدمة"""
     query = update.callback_query
@@ -3559,7 +3613,7 @@ async def show_logs_options(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     load_data()
 
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await query.edit_message_text("❌ البوت غير موجود!")
         return
 
@@ -3600,9 +3654,6 @@ async def show_logs_options(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 
     await query.edit_message_text(log_info, reply_markup=reply_markup)
 
-
-
-
 async def handle_general_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة الأوامر العامة والرسائل"""
     user_id = update.effective_user.id
@@ -3615,6 +3666,7 @@ async def handle_general_commands(update: Update, context: ContextTypes.DEFAULT_
     
     # إذا لم يكن هناك عملية نشطة، عرض القائمة الرئيسية
     await start(update, context)
+
 async def handle_bot_management(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدارة البوتات"""
     query = update.callback_query
@@ -3645,7 +3697,7 @@ async def handle_bot_management(update: Update, context: ContextTypes.DEFAULT_TY
 
         load_data()
 
-        if not await check_bot_exists(user_id, bot_name):
+        if not check_bot_exists(user_id, bot_name):
             await query.edit_message_text("❌ البوت غير موجود!")
             return BOT_MANAGEMENT
 
@@ -3702,109 +3754,128 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
     user_id = query.from_user.id
     data = query.data
 
+    # تحسين استخراج اسم البوت
+    def extract_bot_name(callback_data, prefix):
+        """استخراج اسم البوت من callback data"""
+        if callback_data.startswith(prefix):
+            return callback_data[len(prefix):]
+        return None
+
+    # معالجة الأزرار المختلفة
     if data.startswith("run_normal_"):
-        bot_name = data[11:]
-        await run_bot_handler(update, context, bot_name, False)
+        bot_name = extract_bot_name(data, "run_normal_")
+        if bot_name:
+            await run_bot_handler(update, context, bot_name, False)
 
     elif data.startswith("run_restart_"):
-        bot_name = data[12:]
-        await run_bot_handler(update, context, bot_name, True)
+        bot_name = extract_bot_name(data, "run_restart_")
+        if bot_name:
+            await run_bot_handler(update, context, bot_name, True)
 
     elif data.startswith("stop_"):
-        bot_name = data[5:]
-        await stop_bot_handler(update, context, bot_name)
+        bot_name = extract_bot_name(data, "stop_")
+        if bot_name:
+            await stop_bot_handler(update, context, bot_name)
 
     elif data.startswith("delete_"):
-        bot_name = data[7:]
-        await delete_bot_handler(update, context, bot_name)
+        bot_name = extract_bot_name(data, "delete_")
+        if bot_name:
+            await delete_bot_handler(update, context, bot_name)
 
     elif data.startswith("logs_"):
-        bot_name = data[5:]
-        await show_bot_logs(update, context, bot_name)
+        bot_name = extract_bot_name(data, "logs_")
+        if bot_name:
+            await show_bot_logs(update, context, bot_name)
 
-
-    # في handle_button_callback
     elif data == "clean_all_logs_main":
         await clean_all_logs(update, context)
  
-    
     elif data.startswith("logs_full_"):
-        bot_name = data[10:]
-        await show_bot_logs(update, context, bot_name)
+        bot_name = extract_bot_name(data, "logs_full_")
+        if bot_name:
+            await show_bot_logs(update, context, bot_name)
     
     elif data.startswith("logs_today_"):
-        bot_name = data[11:]
-        await show_logs_by_time(update, context, bot_name, 24)
+        bot_name = extract_bot_name(data, "logs_today_")
+        if bot_name:
+            await show_logs_by_time(update, context, bot_name, 24)
 
     elif data.startswith("logs_hour_"):
-        bot_name = data[10:]
-        await show_logs_by_time(update, context, bot_name, 1)
+        bot_name = extract_bot_name(data, "logs_hour_")
+        if bot_name:
+            await show_logs_by_time(update, context, bot_name, 1)
 
     elif data.startswith("settings_"):
-        bot_name = data[9:]
-        await show_bot_settings(update, context, bot_name)
+        bot_name = extract_bot_name(data, "settings_")
+        if bot_name:
+            await show_bot_settings(update, context, bot_name)
 
     elif data.startswith("install_req_"):
-        bot_name = data[12:]
-        await install_requirements_handler(update, context, bot_name)
+        bot_name = extract_bot_name(data, "install_req_")
+        if bot_name:
+            await install_requirements_handler(update, context, bot_name)
 
     elif data.startswith("start_"):
-        bot_name = data[6:]
-        await run_bot_handler(update, context, bot_name, False)
+        bot_name = extract_bot_name(data, "start_")
+        if bot_name:
+            await run_bot_handler(update, context, bot_name, False)
 
     elif data.startswith("back_to_manage_"):
-        bot_name = data[15:]
-        await handle_bot_management(update, context)
+        bot_name = extract_bot_name(data, "back_to_manage_")
+        if bot_name:
+            await handle_bot_management(update, context)
 
     elif data == "back_to_management":
         await show_bot_management(update, context)
 
     elif data.startswith("add_env_"):
-        bot_name = data[8:]
-        context.user_data['editing_env'] = bot_name
-        context.user_data['action'] = 'add'
-        await query.edit_message_text(
-            f"🌐 أرسل متغير البيئة للبوت {bot_name} بالصيغة:\n"
-            "`اسم_المتغير=القيمة`\n\n"
-            "مثال: `BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`"
-        )
-        return ENV_VAR_INPUT
+        bot_name = extract_bot_name(data, "add_env_")
+        if bot_name:
+            context.user_data['editing_env'] = bot_name
+            context.user_data['action'] = 'add'
+            await query.edit_message_text(
+                f"🌐 أرسل متغير البيئة للبوت {bot_name} بالصيغة:\n"
+                "`اسم_المتغير=القيمة`\n\n"
+                "مثال: `BOT_TOKEN=123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11`"
+            )
+            return ENV_VAR_INPUT
 
     elif data.startswith("delete_env_"):
-        bot_name = data[11:]
-        context.user_data['editing_env'] = bot_name
-        context.user_data['action'] = 'delete'
+        bot_name = extract_bot_name(data, "delete_env_")
+        if bot_name:
+            context.user_data['editing_env'] = bot_name
+            context.user_data['action'] = 'delete'
 
-        load_data()
-        if not await check_bot_exists(user_id, bot_name):
-            await query.edit_message_text("❌ البوت غير موجود!")
-            return
+            load_data()
+            if not check_bot_exists(user_id, bot_name):
+                await query.edit_message_text("❌ البوت غير موجود!")
+                return
 
-        actual_bot_name = None
-        for existing_bot in user_bots[user_id]['bots'].keys():
-            if existing_bot.lower() == bot_name.lower():
-                actual_bot_name = existing_bot
-                break
+            actual_bot_name = None
+            for existing_bot in user_bots[user_id]['bots'].keys():
+                if existing_bot.lower() == bot_name.lower():
+                    actual_bot_name = existing_bot
+                    break
 
-        if not actual_bot_name:
-            await query.edit_message_text("❌ البوت غير موجود!")
-            return
+            if not actual_bot_name:
+                await query.edit_message_text("❌ البوت غير موجود!")
+                return
 
-        bot_info = user_bots[user_id]['bots'][actual_bot_name]
-        env_vars = bot_info.get('env_vars', {})
+            bot_info = user_bots[user_id]['bots'][actual_bot_name]
+            env_vars = bot_info.get('env_vars', {})
 
-        if not env_vars:
-            await query.edit_message_text("❌ لا توجد متغيرات بيئة لحذفها")
-            return
+            if not env_vars:
+                await query.edit_message_text("❌ لا توجد متغيرات بيئة لحذفها")
+                return
 
-        keyboard = []
-        for key in env_vars.keys():
-            keyboard.append([InlineKeyboardButton(f"🗑️ {key}", callback_data=f"del_env_{key}_{actual_bot_name}")])
+            keyboard = []
+            for key in env_vars.keys():
+                keyboard.append([InlineKeyboardButton(f"🗑️ {key}", callback_data=f"del_env_{key}_{actual_bot_name}")])
 
-        keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"settings_{actual_bot_name}")])
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            keyboard.append([InlineKeyboardButton("🔙 رجوع", callback_data=f"settings_{actual_bot_name}")])
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await query.edit_message_text("اختر المتغير لحذفه:", reply_markup=reply_markup)
+            await query.edit_message_text("اختر المتغير لحذفه:", reply_markup=reply_markup)
 
     elif data.startswith("del_env_"):
         parts = data.split('_')
@@ -3813,7 +3884,7 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
             bot_name = '_'.join(parts[3:])
 
             load_data()
-            if not await check_bot_exists(user_id, bot_name):
+            if not check_bot_exists(user_id, bot_name):
                 await query.edit_message_text("❌ البوت غير موجود!")
                 return
 
@@ -3837,59 +3908,65 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
                 await query.edit_message_text("❌ المتغير غير موجود!")
 
     elif data.startswith("edit_restart_"):
-        bot_name = data[13:]
-        context.user_data['editing_env'] = bot_name
-        context.user_data['action'] = 'restart_settings'
+        bot_name = extract_bot_name(data, "edit_restart_")
+        if bot_name:
+            context.user_data['editing_env'] = bot_name
+            context.user_data['action'] = 'restart_settings'
 
-        load_data()
-        if not await check_bot_exists(user_id, bot_name):
-            await query.edit_message_text("❌ البوت غير موجود!")
-            return
+            load_data()
+            if not check_bot_exists(user_id, bot_name):
+                await query.edit_message_text("❌ البوت غير موجود!")
+                return
 
-        actual_bot_name = None
-        for existing_bot in user_bots[user_id]['bots'].keys():
-            if existing_bot.lower() == bot_name.lower():
-                actual_bot_name = existing_bot
-                break
+            actual_bot_name = None
+            for existing_bot in user_bots[user_id]['bots'].keys():
+                if existing_bot.lower() == bot_name.lower():
+                    actual_bot_name = existing_bot
+                    break
 
-        if not actual_bot_name:
-            await query.edit_message_text("❌ البوت غير موجود!")
-            return
+            if not actual_bot_name:
+                await query.edit_message_text("❌ البوت غير موجود!")
+                return
 
-        bot_info = user_bots[user_id]['bots'][actual_bot_name]
+            bot_info = user_bots[user_id]['bots'][actual_bot_name]
 
-        await query.edit_message_text(
-            f"⚙️ إعدادات إعادة التشغيل للبوت {actual_bot_name}:\n\n"
-            f"• التشغيل التلقائي: {'✅' if bot_info.get('auto_start', False) else '❌'}\n"
-            f"• إعادة التشغيل التلقائي: {'✅' if bot_info.get('auto_restart', False) else '❌'}\n"
-            f"• فترة إعادة التشغيل: {bot_info.get('restart_interval', 60)} ثانية\n"
-            f"• الحد الأقصى: {bot_info.get('max_restarts', 10)} مرة\n\n"
-            "📝 أرسل الإعدادات الجديدة بالصيغة:\n"
-            "`تشغيل_تلقائي إعادة_تشغيل فترة_ثانية حد_أقصى`\n\n"
-            "مثال: `نعم نعم 60 10`"
-        )
-        return ENV_VAR_INPUT
+            await query.edit_message_text(
+                f"⚙️ إعدادات إعادة التشغيل للبوت {actual_bot_name}:\n\n"
+                f"• التشغيل التلقائي: {'✅' if bot_info.get('auto_start', False) else '❌'}\n"
+                f"• إعادة التشغيل التلقائي: {'✅' if bot_info.get('auto_restart', False) else '❌'}\n"
+                f"• فترة إعادة التشغيل: {bot_info.get('restart_interval', 60)} ثانية\n"
+                f"• الحد الأقصى: {bot_info.get('max_restarts', 10)} مرة\n\n"
+                "📝 أرسل الإعدادات الجديدة بالصيغة:\n"
+                "`تشغيل_تلقائي إعادة_تشغيل فترة_ثانية حد_أقصى`\n\n"
+                "مثال: `نعم نعم 60 10`"
+            )
+            return ENV_VAR_INPUT
 
     elif data.startswith("lib_"):
-        bot_name = data[4:]
-        context.user_data['current_bot'] = bot_name
-        await handle_library_management(update, context)
+        bot_name = extract_bot_name(data, "lib_")
+        if bot_name:
+            context.user_data['current_bot'] = bot_name
+            await handle_library_management(update, context)
 
     elif data.startswith("file_manager_"):
-        bot_name = data[13:]
-        await list_bot_files(update, context, bot_name)
+        bot_name = extract_bot_name(data, "file_manager_")
+        if bot_name:
+            await list_bot_files(update, context, bot_name)
 
     elif data.startswith("download_file_"):
-        bot_name = data[14:]
-        await download_bot_file(update, context, bot_name)
+        bot_name = extract_bot_name(data, "download_file_")
+        if bot_name:
+            await download_bot_file(update, context, bot_name)
 
     elif data.startswith("delete_file_"):
-        bot_name = data[12:]
-        await delete_bot_file(update, context, bot_name)
+        bot_name = extract_bot_name(data, "delete_file_")
+        if bot_name:
+            await delete_bot_file(update, context, bot_name)
 
     elif data.startswith("show_all_files_"):
-        bot_name = data[15:]
-        await show_all_bot_files(update, context, bot_name)
+        bot_name = extract_bot_name(data, "show_all_files_")
+        if bot_name:
+            await show_all_bot_files(update, context, bot_name)
 
     elif data.startswith("dl_"):
         await handle_file_download(update, context)
@@ -3899,12 +3976,14 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     # أزرار تنظيف السجلات
     elif data.startswith("clean_logs_"):
-        bot_name = data[11:]
-        await clean_bot_logs(update, context, bot_name)
+        bot_name = extract_bot_name(data, "clean_logs_")
+        if bot_name:
+            await clean_bot_logs(update, context, bot_name)
 
     elif data.startswith("log_stats_"):
-        bot_name = data[10:]
-        await show_logs_statistics(update, context, bot_name)
+        bot_name = extract_bot_name(data, "log_stats_")
+        if bot_name:
+            await show_logs_statistics(update, context, bot_name)
 
     # أزرار وحدة التحكم
     elif data.startswith("term_"):
@@ -3912,6 +3991,10 @@ async def handle_button_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("cmd_"):
         await execute_terminal_command(update, context)
+
+    # أزرار الرجوع العامة
+    elif data == "back_to_main":
+        await start(update, context)
 
 async def handle_env_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """معالجة إدخال متغيرات البيئة"""
@@ -3926,7 +4009,7 @@ async def handle_env_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = context.user_data.get('action')
 
     load_data()
-    if not await check_bot_exists(user_id, bot_name):
+    if not check_bot_exists(user_id, bot_name):
         await update.message.reply_text("❌ البوت غير موجود!")
         return
 
@@ -4679,11 +4762,35 @@ def main():
         logger.info("جاري تشغيل البوتات التلقائية...")
         auto_start_all_bots_on_load()
 
+        # بدء مراقبة استخدام الذاكرة
+        asyncio.create_task(memory_monitor())
+
         application.run_polling(drop_pending_updates=True)
 
     except Exception as e:
         logger.error(f"❌ فشل تشغيل البوت: {e}")
         print(f"❌ فشل تشغيل البوت: {e}")
+
+async def memory_monitor():
+    """مراقبة استخدام الذاكرة وتنظيفها تلقائياً"""
+    while True:
+        try:
+            # تحسين استخدام الذاكرة كل 5 دقائق
+            optimize_memory_usage()
+            
+            # مراقبة استخدام الذاكرة
+            process = psutil.Process()
+            memory_usage = process.memory_info().rss / 1024 / 1024  # بالـ MB
+            
+            if memory_usage > 500:  # إذا تجاوز 500 MB
+                logger.warning(f"استخدام الذاكرة مرتفع: {memory_usage:.2f} MB")
+                # تنظيف إضافي للذاكرة
+                cleanup_memory_cache()
+                
+        except Exception as e:
+            logger.error(f"خطأ في مراقبة الذاكرة: {e}")
+        
+        await asyncio.sleep(300)  # انتظار 5 دقائق
 
 if __name__ == '__main__':
     main()
